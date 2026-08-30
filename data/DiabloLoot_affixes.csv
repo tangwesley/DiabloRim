@@ -1,0 +1,134 @@
+affixId,name,category,tier,points,minValue,maxValue,unit,duration,area,slots,weight,minItemLevel,mgef,npcExclude,prefix,suffix
+armor,Armor,Physical,1,1,5,10,flat,0,0,ARMOR|SHIELD,100,1,Skyrim.esm|0x017120,0,Ironclad,of Warding
+armor,Armor,Physical,2,2,11,20,flat,0,0,ARMOR|SHIELD,100,12,Skyrim.esm|0x017120,0,Ironclad,of Warding
+armor,Armor,Physical,3,3,21,35,flat,0,0,ARMOR|SHIELD,100,25,Skyrim.esm|0x017120,0,Ironclad,of Warding
+health,Health,Attribute,1,1,10,20,flat,0,0,ARMOR|SHIELD,100,1,Skyrim.esm|0x0493AA,0,Hale,of Health
+health,Health,Attribute,2,2,21,40,flat,0,0,ARMOR|SHIELD,100,12,Skyrim.esm|0x0493AA,0,Hale,of Health
+health,Health,Attribute,3,3,41,60,flat,0,0,ARMOR|SHIELD,100,25,Skyrim.esm|0x0493AA,0,Hale,of Health
+magicka,Magicka,Attribute,1,1,10,20,flat,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x049504,0,Arcane,of Magicka
+magicka,Magicka,Attribute,2,2,21,40,flat,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x049504,0,Arcane,of Magicka
+magicka,Magicka,Attribute,3,3,41,60,flat,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x049504,0,Arcane,of Magicka
+stamina,Stamina,Attribute,1,1,10,20,flat,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x049507,0,Vigorous,of Stamina
+stamina,Stamina,Attribute,2,2,21,40,flat,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x049507,0,Vigorous,of Stamina
+stamina,Stamina,Attribute,3,3,41,60,flat,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x049507,0,Vigorous,of Stamina
+health_regen,Health Regen,Regeneration,1,1,10,20,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0F8,0,Mending,of Regeneration
+health_regen,Health Regen,Regeneration,2,2,21,35,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0F8,0,Mending,of Regeneration
+health_regen,Health Regen,Regeneration,3,3,36,50,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0F8,0,Mending,of Regeneration
+magicka_regen,Magicka Regen,Regeneration,1,1,20,40,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x109630,0,Kindling,of Recharging
+magicka_regen,Magicka Regen,Regeneration,2,2,41,70,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x109630,0,Kindling,of Recharging
+magicka_regen,Magicka Regen,Regeneration,3,3,71,100,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x109630,0,Kindling,of Recharging
+stamina_regen,Stamina Regen,Regeneration,1,1,10,20,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A105,0,Tireless,of Endurance
+stamina_regen,Stamina Regen,Regeneration,2,2,21,35,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A105,0,Tireless,of Endurance
+stamina_regen,Stamina Regen,Regeneration,3,3,36,50,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A105,0,Tireless,of Endurance
+one_handed,One-Handed,Combat Skill,1,1,5,10,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0FF,0,Honed,of Wielding
+one_handed,One-Handed,Combat Skill,2,2,11,20,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0FF,0,Honed,of Wielding
+one_handed,One-Handed,Combat Skill,3,3,21,30,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0FF,0,Honed,of Wielding
+two_handed,Two-Handed,Combat Skill,1,1,5,10,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A106,0,Cleaving,of Smiting
+two_handed,Two-Handed,Combat Skill,2,2,11,20,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A106,0,Cleaving,of Smiting
+two_handed,Two-Handed,Combat Skill,3,3,21,30,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A106,0,Cleaving,of Smiting
+archery,Archery,Combat Skill,1,1,5,10,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0FE,0,Keen-Eyed,of Archery
+archery,Archery,Combat Skill,2,2,11,20,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0FE,0,Keen-Eyed,of Archery
+archery,Archery,Combat Skill,3,3,21,30,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0FE,0,Keen-Eyed,of Archery
+block,Block,Combat Skill,1,1,5,10,pct,0,0,SHIELD|ARMOR,100,1,Skyrim.esm|0x07A0F3,0,Bulwark,of Blocking
+block,Block,Combat Skill,2,2,11,20,pct,0,0,SHIELD|ARMOR,100,12,Skyrim.esm|0x07A0F3,0,Bulwark,of Blocking
+block,Block,Combat Skill,3,3,21,30,pct,0,0,SHIELD|ARMOR,100,25,Skyrim.esm|0x07A0F3,0,Bulwark,of Blocking
+heavy_armor,Heavy Armor,Armor Skill,1,1,5,10,flat,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0F9,0,Stalwart,of the Bulwark
+heavy_armor,Heavy Armor,Armor Skill,2,2,11,18,flat,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0F9,0,Stalwart,of the Bulwark
+heavy_armor,Heavy Armor,Armor Skill,3,3,19,25,flat,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0F9,0,Stalwart,of the Bulwark
+light_armor,Light Armor,Armor Skill,1,1,5,10,flat,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0FB,0,Nimble,of the Wayfarer
+light_armor,Light Armor,Armor Skill,2,2,11,18,flat,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0FB,0,Nimble,of the Wayfarer
+light_armor,Light Armor,Armor Skill,3,3,19,25,flat,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0FB,0,Nimble,of the Wayfarer
+sneak,Sneak,Stealth,1,1,10,15,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A103,0,Shrouded,of Stealth
+sneak,Sneak,Stealth,2,2,16,25,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A103,0,Shrouded,of Stealth
+sneak,Sneak,Stealth,3,3,26,40,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A103,0,Shrouded,of Stealth
+lockpicking,Lockpicking,Stealth,1,1,10,15,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0FC,0,Deft,of Deft Hands
+lockpicking,Lockpicking,Stealth,2,2,16,25,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0FC,0,Deft,of Deft Hands
+lockpicking,Lockpicking,Stealth,3,3,26,40,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0FC,0,Deft,of Deft Hands
+pickpocket,Pickpocket,Stealth,1,1,10,15,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A100,0,Light-Fingered,of Delving
+pickpocket,Pickpocket,Stealth,2,2,16,25,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A100,0,Light-Fingered,of Delving
+pickpocket,Pickpocket,Stealth,3,3,26,40,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A100,0,Light-Fingered,of Delving
+barter,Barter,Economy,1,1,5,10,pct,0,0,HEAD|AMULET|RING,100,1,Skyrim.esm|0x07A104,0,Silvered,of Haggling
+barter,Barter,Economy,2,2,11,17,pct,0,0,HEAD|AMULET|RING,100,12,Skyrim.esm|0x07A104,0,Silvered,of Haggling
+barter,Barter,Economy,3,3,18,25,pct,0,0,HEAD|AMULET|RING,100,25,Skyrim.esm|0x07A104,0,Silvered,of Haggling
+alchemy,Alchemy,Crafting,1,1,5,8,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x08B65C,0,Herbalist's,of Alchemy
+alchemy,Alchemy,Crafting,2,2,9,15,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x08B65C,0,Herbalist's,of Alchemy
+alchemy,Alchemy,Crafting,3,3,16,20,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x08B65C,0,Herbalist's,of Alchemy
+smithing,Smithing,Crafting,1,1,5,8,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A102,0,Smith's,of the Forge
+smithing,Smithing,Crafting,2,2,9,15,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A102,0,Smith's,of the Forge
+smithing,Smithing,Crafting,3,3,16,20,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A102,0,Smith's,of the Forge
+magic_resist,Magic Resist,Resistance,1,1,5,8,pct,0,0,ARMOR|SHIELD|RING|AMULET,100,1,Skyrim.esm|0x0B7A35,0,Warded,of Nullification
+magic_resist,Magic Resist,Resistance,2,2,9,14,pct,0,0,ARMOR|SHIELD|RING|AMULET,100,12,Skyrim.esm|0x0B7A35,0,Warded,of Nullification
+magic_resist,Magic Resist,Resistance,3,3,15,20,pct,0,0,ARMOR|SHIELD|RING|AMULET,100,25,Skyrim.esm|0x0B7A35,0,Warded,of Nullification
+poison_resist,Poison Resist,Resistance,1,1,15,30,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x0FF15E,0,Antivenom,of Waning Venom
+poison_resist,Poison Resist,Resistance,2,2,31,60,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x0FF15E,0,Antivenom,of Waning Venom
+poison_resist,Poison Resist,Resistance,3,3,61,100,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x0FF15E,0,Antivenom,of Waning Venom
+disease_resist,Disease Resist,Resistance,1,1,15,30,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x100E60,0,Cleansing,of Resilience
+disease_resist,Disease Resist,Resistance,2,2,31,60,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x100E60,0,Cleansing,of Resilience
+disease_resist,Disease Resist,Resistance,3,3,61,100,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x100E60,0,Cleansing,of Resilience
+fire_damage,Fire Damage,Weapon Damage,1,1,3,7,flat,0,0,WEAPON,100,1,Skyrim.esm|0x04605A,0,Ember,of Burning
+fire_damage,Fire Damage,Weapon Damage,2,2,8,15,flat,0,0,WEAPON,100,12,Skyrim.esm|0x04605A,0,Ember,of Burning
+fire_damage,Fire Damage,Weapon Damage,3,3,16,25,flat,0,0,WEAPON,100,25,Skyrim.esm|0x04605A,0,Ember,of Burning
+frost_damage,Frost Damage,Weapon Damage,1,1,3,7,flat,0,0,WEAPON,100,1,Skyrim.esm|0x04605B,0,Rime,of Frostbite
+frost_damage,Frost Damage,Weapon Damage,2,2,8,15,flat,0,0,WEAPON,100,12,Skyrim.esm|0x04605B,0,Rime,of Frostbite
+frost_damage,Frost Damage,Weapon Damage,3,3,16,25,flat,0,0,WEAPON,100,25,Skyrim.esm|0x04605B,0,Rime,of Frostbite
+shock_damage,Shock Damage,Weapon Damage,1,1,3,7,flat,1,0,WEAPON,100,1,Skyrim.esm|0x04605C,0,Storm,of Sparks
+shock_damage,Shock Damage,Weapon Damage,2,2,8,15,flat,1,0,WEAPON,100,12,Skyrim.esm|0x04605C,0,Storm,of Sparks
+shock_damage,Shock Damage,Weapon Damage,3,3,16,25,flat,1,0,WEAPON,100,25,Skyrim.esm|0x04605C,0,Storm,of Sparks
+damage_magicka,Damage Magicka,Weapon Damage,1,1,10,20,flat,0,0,WEAPON,100,1,Skyrim.esm|0x05B44F,0,Nulling,of Depletion
+damage_magicka,Damage Magicka,Weapon Damage,2,2,21,40,flat,0,0,WEAPON,100,12,Skyrim.esm|0x05B44F,0,Nulling,of Depletion
+damage_magicka,Damage Magicka,Weapon Damage,3,3,41,60,flat,0,0,WEAPON,100,25,Skyrim.esm|0x05B44F,0,Nulling,of Depletion
+damage_stamina,Damage Stamina,Weapon Damage,1,1,5,10,flat,0,0,WEAPON,100,1,Skyrim.esm|0x05B450,0,Wearying,of Weariness
+damage_stamina,Damage Stamina,Weapon Damage,2,2,11,20,flat,0,0,WEAPON,100,12,Skyrim.esm|0x05B450,0,Wearying,of Weariness
+damage_stamina,Damage Stamina,Weapon Damage,3,3,21,30,flat,0,0,WEAPON,100,25,Skyrim.esm|0x05B450,0,Wearying,of Weariness
+absorb_health,Absorb Health,Absorb,1,1,3,7,flat,1,0,WEAPON,100,1,Skyrim.esm|0x0AA155,0,Leeching,of Absorption
+absorb_health,Absorb Health,Absorb,2,2,8,15,flat,1,0,WEAPON,100,12,Skyrim.esm|0x0AA155,0,Leeching,of Absorption
+absorb_health,Absorb Health,Absorb,3,3,16,25,flat,1,0,WEAPON,100,25,Skyrim.esm|0x0AA155,0,Leeching,of Absorption
+absorb_magicka,Absorb Magicka,Absorb,1,1,5,10,flat,1,0,WEAPON,100,1,Skyrim.esm|0x0AA156,0,Siphoning,of Siphoning
+absorb_magicka,Absorb Magicka,Absorb,2,2,11,20,flat,1,0,WEAPON,100,12,Skyrim.esm|0x0AA156,0,Siphoning,of Siphoning
+absorb_magicka,Absorb Magicka,Absorb,3,3,21,30,flat,1,0,WEAPON,100,25,Skyrim.esm|0x0AA156,0,Siphoning,of Siphoning
+absorb_stamina,Absorb Stamina,Absorb,1,1,5,10,flat,1,0,WEAPON,100,1,Skyrim.esm|0x0AA157,0,Draining,of Draining
+absorb_stamina,Absorb Stamina,Absorb,2,2,11,20,flat,1,0,WEAPON,100,12,Skyrim.esm|0x0AA157,0,Draining,of Draining
+absorb_stamina,Absorb Stamina,Absorb,3,3,21,30,flat,1,0,WEAPON,100,25,Skyrim.esm|0x0AA157,0,Draining,of Draining
+fear,Fear,Control,1,1,1,7,level,30,0,WEAPON,100,1,Skyrim.esm|0x05B451,0,Dread,of Cowardice
+fear,Fear,Control,2,2,8,14,level,30,0,WEAPON,100,12,Skyrim.esm|0x05B451,0,Dread,of Cowardice
+fear,Fear,Control,3,3,15,20,level,30,0,WEAPON,100,25,Skyrim.esm|0x05B451,0,Dread,of Cowardice
+turn_undead,Turn Undead,Control,1,1,1,12,level,30,0,WEAPON,100,1,Skyrim.esm|0x05B46B,0,Consecrated,of Turning
+turn_undead,Turn Undead,Control,2,2,13,25,level,30,0,WEAPON,100,12,Skyrim.esm|0x05B46B,0,Consecrated,of Turning
+turn_undead,Turn Undead,Control,3,3,26,40,level,30,0,WEAPON,100,25,Skyrim.esm|0x05B46B,0,Consecrated,of Turning
+banish,Banish,Control,1,1,1,12,level,0,0,WEAPON,100,1,Skyrim.esm|0x0ACBB5,0,Banishing,of Banishment
+banish,Banish,Control,2,2,13,24,level,0,0,WEAPON,100,12,Skyrim.esm|0x0ACBB5,0,Banishing,of Banishment
+banish,Banish,Control,3,3,25,36,level,0,0,WEAPON,100,25,Skyrim.esm|0x0ACBB5,0,Banishing,of Banishment
+unarmed_damage,Unarmed Damage,Unarmed,1,1,3,5,flat,0,0,HANDS|RING,100,1,Skyrim.esm|0x0424E2,0,Brawler's,of the Brawler
+unarmed_damage,Unarmed Damage,Unarmed,2,2,6,10,flat,0,0,HANDS|RING,100,12,Skyrim.esm|0x0424E2,0,Brawler's,of the Brawler
+unarmed_damage,Unarmed Damage,Unarmed,3,3,11,15,flat,0,0,HANDS|RING,100,25,Skyrim.esm|0x0424E2,0,Brawler's,of the Brawler
+alteration_cost,Alteration Cost,Magic,1,1,5,8,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0F2,0,Shifting,of Alteration
+alteration_cost,Alteration Cost,Magic,2,2,9,15,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0F2,0,Shifting,of Alteration
+alteration_cost,Alteration Cost,Magic,3,3,16,20,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0F2,0,Shifting,of Alteration
+conjuration_cost,Conjuration Cost,Magic,1,1,5,8,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0F5,0,Summoner's,of Conjuring
+conjuration_cost,Conjuration Cost,Magic,2,2,9,15,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0F5,0,Summoner's,of Conjuring
+conjuration_cost,Conjuration Cost,Magic,3,3,16,20,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0F5,0,Summoner's,of Conjuring
+destruction_cost,Destruction Cost,Magic,1,1,5,8,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0F6,0,Kindled,of Destruction
+destruction_cost,Destruction Cost,Magic,2,2,9,15,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0F6,0,Kindled,of Destruction
+destruction_cost,Destruction Cost,Magic,3,3,16,20,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0F6,0,Kindled,of Destruction
+illusion_cost,Illusion Cost,Magic,1,1,5,8,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0FA,0,Veiled,of Illusion
+illusion_cost,Illusion Cost,Magic,2,2,9,15,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0FA,0,Veiled,of Illusion
+illusion_cost,Illusion Cost,Magic,3,3,16,20,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0FA,0,Veiled,of Illusion
+restoration_cost,Restoration Cost,Magic,1,1,5,8,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A101,0,Hallowed,of Restoration
+restoration_cost,Restoration Cost,Magic,2,2,9,15,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A101,0,Hallowed,of Restoration
+restoration_cost,Restoration Cost,Magic,3,3,16,20,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A101,0,Hallowed,of Restoration
+fire_resist,Fire Resist,Resistance,1,1,10,20,pct,0,0,ARMOR|SHIELD|RING|AMULET,100,1,Skyrim.esm|0x048C8B,0,Firewalker's,of Waning Fire
+fire_resist,Fire Resist,Resistance,2,2,21,35,pct,0,0,ARMOR|SHIELD|RING|AMULET,100,12,Skyrim.esm|0x048C8B,0,Firewalker's,of Waning Fire
+fire_resist,Fire Resist,Resistance,3,3,36,50,pct,0,0,ARMOR|SHIELD|RING|AMULET,100,25,Skyrim.esm|0x048C8B,0,Firewalker's,of Waning Fire
+frost_resist,Frost Resist,Resistance,1,1,10,20,pct,0,0,ARMOR|SHIELD|RING|AMULET,100,1,Skyrim.esm|0x048F45,0,Hearthwarm,of Waning Frost
+frost_resist,Frost Resist,Resistance,2,2,21,35,pct,0,0,ARMOR|SHIELD|RING|AMULET,100,12,Skyrim.esm|0x048F45,0,Hearthwarm,of Waning Frost
+frost_resist,Frost Resist,Resistance,3,3,36,50,pct,0,0,ARMOR|SHIELD|RING|AMULET,100,25,Skyrim.esm|0x048F45,0,Hearthwarm,of Waning Frost
+shock_resist,Shock Resist,Resistance,1,1,10,20,pct,0,0,ARMOR|SHIELD|RING|AMULET,100,1,Skyrim.esm|0x049295,0,Grounded,of Waning Shock
+shock_resist,Shock Resist,Resistance,2,2,21,35,pct,0,0,ARMOR|SHIELD|RING|AMULET,100,12,Skyrim.esm|0x049295,0,Grounded,of Waning Shock
+shock_resist,Shock Resist,Resistance,3,3,36,50,pct,0,0,ARMOR|SHIELD|RING|AMULET,100,25,Skyrim.esm|0x049295,0,Grounded,of Waning Shock
+paralysis,Paralysis,Control,2,2,1,1,seconds,1,0,WEAPON,35,12,Skyrim.esm|0x01EA6E,0,Binding,of Stasis
+paralysis,Paralysis,Control,3,3,2,2,seconds,2,0,WEAPON,35,25,Skyrim.esm|0x01EA6E,0,Binding,of Stasis
+waterbreathing,Waterbreathing,Toggle,1,1,1,1,toggle,0,0,HEAD|RING|AMULET,100,1,Skyrim.esm|0x092A48,0,Tidewalker's,of Waterbreathing
+soul_trap,Soul Trap,Toggle,1,1,1,1,toggle,3,0,WEAPON,100,1,Skyrim.esm|0x0FB407,0,Soulrender,of Soul Snares
+disease_immunity,Disease Immunity,Toggle,1,1,1,1,toggle,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x100E60,0,Untainted,of Purity
+muffle,Muffle,Toggle,1,2,1,1,toggle,0,0,FEET,100,12,Skyrim.esm|0x092A57,0,Hushed,of Muffling
+poison_immunity,Poison Immunity,Toggle,1,2,1,1,toggle,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x0FF15E,0,Unpoisoned,of Immunity

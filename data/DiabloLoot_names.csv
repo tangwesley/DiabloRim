@@ -1,0 +1,63 @@
+# Name fragments, Elder Scrolls register.
+#
+# Suffixes follow Skyrim's own habit: "of <Verb-ing>" for what the item DOES
+# ("of Burning", "of Blocking") and "of <Noun>" for what it GIVES ("of Health",
+# "of Waning Fire"). Vanilla almost never uses a prefix, so these are invented,
+# but kept to smith-and-enchanter vocabulary rather than Diablo's Latinate
+# adjectives -- Honed and Warded rather than Vicious and Cruel.
+#
+# The roller uses at most ONE prefix and ONE suffix per item, taken from the
+# highest-scoring affix that offers each. So an item can carry four affixes and
+# still read as "Honed Iron Sword of Burning" rather than a pile of clauses.
+#
+# Edit freely; nothing depends on these beyond the name itself.
+#
+# affixId,prefix,suffix
+absorb_health,Leeching,of Absorption
+absorb_magicka,Siphoning,of Siphoning
+absorb_stamina,Draining,of Draining
+alchemy,Herbalist's,of Alchemy
+alteration_cost,Shifting,of Alteration
+archery,Keen-Eyed,of Archery
+armor,Ironclad,of Warding
+banish,Banishing,of Banishment
+barter,Silvered,of Haggling
+block,Bulwark,of Blocking
+conjuration_cost,Summoner's,of Conjuring
+damage_magicka,Nulling,of Depletion
+damage_stamina,Wearying,of Weariness
+destruction_cost,Kindled,of Destruction
+disease_immunity,Untainted,of Purity
+disease_resist,Cleansing,of Resilience
+fear,Dread,of Cowardice
+fire_damage,Ember,of Burning
+fire_resist,Firewalker's,of Waning Fire
+frost_damage,Rime,of Frostbite
+frost_resist,Hearthwarm,of Waning Frost
+health,Hale,of Health
+health_regen,Mending,of Regeneration
+heavy_armor,Stalwart,of the Bulwark
+illusion_cost,Veiled,of Illusion
+light_armor,Nimble,of the Wayfarer
+lockpicking,Deft,of Deft Hands
+magic_resist,Warded,of Nullification
+magicka,Arcane,of Magicka
+magicka_regen,Kindling,of Recharging
+muffle,Hushed,of Muffling
+one_handed,Honed,of Wielding
+paralysis,Binding,of Stasis
+pickpocket,Light-Fingered,of Delving
+poison_immunity,Unpoisoned,of Immunity
+poison_resist,Antivenom,of Waning Venom
+restoration_cost,Hallowed,of Restoration
+shock_damage,Storm,of Sparks
+shock_resist,Grounded,of Waning Shock
+smithing,Smith's,of the Forge
+sneak,Shrouded,of Stealth
+soul_trap,Soulrender,of Soul Snares
+stamina,Vigorous,of Stamina
+stamina_regen,Tireless,of Endurance
+turn_undead,Consecrated,of Turning
+two_handed,Cleaving,of Smiting
+unarmed_damage,Brawler's,of the Brawler
+waterbreathing,Tidewalker's,of Waterbreathing

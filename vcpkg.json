@@ -1,0 +1,11 @@
+{
+  "name": "diablo-in-skyrim",
+  "version-string": "0.1.0",
+  "builtin-baseline": "3895230f38e498525f2560a281223d12066fa74a",
+  "dependencies": [
+    "spdlog",
+    "fmt",
+    "rapidcsv",
+    "directxtk"
+  ]
+}

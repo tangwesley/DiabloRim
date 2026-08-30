@@ -1,0 +1,75 @@
+# Name fragments for the Summermyst affixes, same register as the base table.
+#
+# Discovery defaults every suffix to "of <EffectName>", which is accurate and
+# reads like a stat block: "Leather Boots of Fortify Unarmed Damage". These are
+# hand-written replacements.
+#
+# Checked against the base table so no fragment appears in both -- an item can
+# take its prefix from one affix and its suffix from another, and two affixes
+# offering the same word would read as a stutter.
+#
+# affixId,prefix,suffix
+absorb_speed,Sapping,of Sapping
+amplify_alteration,Shaping,of Shaping
+amplify_conjuration,Caller's,of Summoning
+amplify_destruction,Ruinous,of Ruin
+amplify_illusion,Beguiling,of Beguilement
+amplify_restoration,Blessed,of Benediction
+battle_hunger,Ravening,of Ravening
+bleed_damage,Serrated,of Bleeding
+cheat_death,Fateful,of Second Breath
+counterspell,Unweaving,of Unweaving
+death_s_door,Grim,of the Threshold
+death_shroud,Grave-Touched,of the Shroud
+deep_breath,Tidebound,of the Deep
+drain_damage,Withering,of Withering
+drain_magic_resist,Unwarding,of Unwarding
+drain_skills,Dulling,of Dulling
+fire_hazard,Smouldering,of Cinders
+fortify_bashing,Battering,of Bashing
+fortify_critical_strikes,Precise,of Precision
+fortify_potions,Apothecary's,of Apothecaries
+fortify_power_attacks,Forceful,of Force
+fortify_shout_power,Thu'um-Touched,of the Voice
+fortify_speed,Swift,of Swiftness
+fortify_total_armor,Plated,of Plating
+fortify_unarmed_damage,Ironfisted,of Iron Fists
+frenzy,Raging,of Rage
+frost_hazard,Glacial,of Hoarfrost
+halt,Steadfast,of Halting
+horsemanship,Rider's,of the Rider
+imminent_victory,Triumphant,of Triumph
+insult,Taunting,of Taunting
+invisibility,Vanishing,of Vanishing
+karma,Vengeful,of Retribution
+killstreak,Relentless,of Momentum
+launch,Hurling,of Hurling
+leak_stamina,Enervating,of Enervation
+mania,Maddening,of Madness
+philosopher_s_stone,Transmuting,of Transmutation
+poison_damage,Envenomed,of Venom
+power_surge,Surging,of Surging
+primal,Feral,of the Beast
+radius,Sweeping,of Sweeping
+reactive_barrier,Bulwarked,of the Aegis
+recharge_weapons,Rekindling,of Rekindling
+reclaim_magicka,Replenishing,of Replenishment
+reclaim_stamina,Restoring,of Renewal
+rolling_thunder,Thundering,of Thunder
+shalidor_s_shield,Shalidor's,of the Archmage
+shifting_earth,Quaking,of Upheaval
+shock_hazard,Crackling,of Static
+siphon_health,Bloodfed,of Bloodletting
+siphon_magicka,Arcane-Fed,of Manaflow
+siphon_stamina,Vigorfed,of Vigorflow
+slay_living,Deathly,of Slaying
+spikes,Barbed,of Thorns
+stability,Unyielding,of Steadfastness
+stormbringer,Storm-Called,of the Tempest
+sun_damage,Sunhallow,of Sunfire
+unbreakable,Adamant,of the Unbroken
+vampire_s_heart,Bloodcursed,of the Blooded Heart
+weakness_to_fire,Scorchmarked,of Tinder
+weakness_to_frost,Chillmarked,of Brittleness
+weakness_to_poison,Taintmarked,of Frailty
+weakness_to_shock,Stormmarked,of Conduction
