@@ -22,6 +22,10 @@ namespace
     bool g_discovery = false;
     bool g_verboseSurvey = false;
 
+    // 1.0 is vanilla. Clamped rather than validated: an INI is edited by hand,
+    // and a fat-fingered 30 should give a very full chest, not a hang.
+    float g_containerLoot = 1.0f;
+
     // Starts as whatever the roller ships with, so that not writing the setting
     // and deleting the whole file come out the same. (The roller ships U+25C6.)
     std::string g_tierMarker{ roll::TierMark() };
@@ -60,6 +64,25 @@ namespace
         std::transform(a_value.begin(), a_value.end(), a_value.begin(),
             [](unsigned char a_ch) { return static_cast<char>(std::tolower(a_ch)); });
         return a_value == "1" || a_value == "true" || a_value == "yes" || a_value == "on";
+    }
+
+    // ★A BAD NUMBER KEEPS THE DEFAULT AND SAYS SO. std::stof throws on garbage,
+    // and an exception escaping Load() over a typo would take the whole plugin
+    // down at kDataLoaded -- for a setting whose entire job is optional.
+    float AsFloat(const std::string& a_value, float a_fallback, float a_min, float a_max)
+    {
+        try {
+            std::size_t used = 0;
+            const float parsed = std::stof(a_value, &used);
+            if (used != a_value.size()) {
+                logger::warn("{}: '{}' has trailing junk; using {}", kPath, a_value, a_fallback);
+                return a_fallback;
+            }
+            return std::clamp(parsed, a_min, a_max);
+        } catch (const std::exception&) {
+            logger::warn("{}: '{}' is not a number; using {}", kPath, a_value, a_fallback);
+            return a_fallback;
+        }
     }
 }
 
@@ -110,6 +133,8 @@ void Config::Load()
             g_distribution = AsBool(value);
         } else if (key == "questrewards") {
             g_questRewards = AsBool(value);
+        } else if (key == "containerlootmultiplier") {
+            g_containerLoot = AsFloat(value, 1.0f, 1.0f, 10.0f);
         } else if (key == "discovery") {
             g_discovery = AsBool(value);
         } else if (key == "verbosesurvey") {
@@ -149,11 +174,12 @@ void Config::Load()
 
     logger::info(
         "{}: {} setting(s) applied -- distribution {}, quest rewards {}, discovery {}, "
-        "verbose survey {}, tier marker {} ({})",
+        "verbose survey {}, tier marker {} ({}), container loot x{:.2f}",
         kPath, applied, g_distribution ? "on" : "OFF", g_questRewards ? "on" : "OFF",
         g_discovery ? "ON" : "off", g_verboseSurvey ? "ON" : "off",
         g_tierMarker.empty() ? std::string{ "(none)" } : "'" + g_tierMarker + "'",
-        g_tierMarkerInName ? "in item names" : "on hover only (names left alone)");
+        g_tierMarkerInName ? "in item names" : "on hover only (names left alone)",
+        g_containerLoot);
 }
 
 bool Config::DistributionEnabled()
@@ -164,6 +190,11 @@ bool Config::DistributionEnabled()
 bool Config::QuestRewardsEnabled()
 {
     return g_questRewards;
+}
+
+float Config::ContainerLootMultiplier()
+{
+    return g_containerLoot;
 }
 
 bool Config::DiscoveryEnabled()

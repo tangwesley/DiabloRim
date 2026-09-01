@@ -7,6 +7,7 @@
 #include "Distribute.h"
 
 #include "Apply.h"
+#include "Config.h"
 #include "Persist.h"
 #include "roll/Roll.h"
 
@@ -395,13 +396,188 @@ namespace
         return (std::max)(level, 1);
     }
 
+    // ★A CAP ON THE EXTRA, in the same spirit as kMaxItemsPerActor and for the
+    // same reason. A multiplier applies to whatever the container was authored
+    // with, and Skyrim has containers authored with a lot -- a merchant chest
+    // resolves dozens of lists. Ten times dozens, added one call at a time
+    // while the player waits for a menu, is a stutter with a number attached.
+    constexpr std::size_t kMaxExtraItemsPerContainer = 64;
+
+    // ★HOW MANY EXTRA RESOLUTIONS, from a multiplier that need not be a whole
+    // number. 3.0 is two extra passes every time; 1.5 is one extra pass half
+    // the time. The fractional part is a coin flip rather than a rounding,
+    // because rounding 1.5 to "one extra pass, always" makes every value in
+    // [1.5, 2.5) mean the same thing and quietly removes half the dial.
+    int ExtraPasses(float a_multiplier)
+    {
+        const float extra = a_multiplier - 1.0f;
+        if (extra <= 0.0f) {
+            return 0;
+        }
+        int         passes = static_cast<int>(extra);
+        const float frac = extra - static_cast<float>(passes);
+        if (frac > 0.0f) {
+            std::uniform_real_distribution<float> coin{ 0.0f, 1.0f };
+            if (coin(ThreadRng()) < frac) {
+                ++passes;
+            }
+        }
+        return passes;
+    }
+
+    // ★MORE LOOT, by asking the engine for the same thing again.
+    //
+    // A container's base record holds what the level designer wrote: some plain
+    // items and some LEVELED ITEM entries. Vanilla resolves each leveled entry
+    // ONCE, when the reference's inventory is first initialised, and that
+    // resolution is the whole random-loot system. Running it again with the same
+    // level produces exactly what a second chest in that room would have held --
+    // which is why this needs no balance table of its own. The engine's own
+    // list, at the engine's own level, drawn again.
+    //
+    // ★ONLY THE LEVELED ENTRIES. A plain entry in the base record is a decision
+    // somebody made about THIS container -- the Amulet of Kings in this chest,
+    // this key, this note. Multiplying those does not make the game more
+    // generous, it makes it incoherent, and for a quest item it makes it broken.
+    // Anything that is not a TESLevItem is left exactly alone.
+    //
+    // Returns how many items were added, for the stats.
+    std::size_t StockContainer(RE::TESObjectREFR* a_refr, int a_level)
+    {
+        const int passes = ExtraPasses(Config::ContainerLootMultiplier());
+        if (passes <= 0) {
+            return 0;
+        }
+
+        // ★A CORPSE IS NOT A CHEST, though the game shows you the same menu for
+        // both -- ContainerMenu opens over a dead bandit exactly as it does over
+        // a barrel, so this function sees actors whether it wants them or not.
+        //
+        // An NPC's base record carries leveled entries too, and rolling those
+        // again hands the player three copies of the sword the bandit is still
+        // holding: the entry that armed him and the entries that duplicate it
+        // are the same entry. The setting says CONTAINER, so containers it is.
+        if (a_refr->As<RE::Actor>()) {
+            return 0;
+        }
+
+        auto* base = a_refr->GetContainer();
+        if (!base) {
+            return 0;  // not a container at all; nothing authored to re-roll
+        }
+
+        // ★VANILLA'S ROLL FIRST, EXPLICITLY, and the ordering is not cosmetic.
+        //
+        // An unopened chest has no ExtraContainerChanges: its contents are still
+        // a promise held in the base record. AddObjectToContainer would create
+        // that structure to hold OUR items -- and a container whose changes
+        // already exist is a container the engine considers initialised, so the
+        // authored contents could never arrive. The chest would hold the bonus
+        // loot and nothing else, which is a multiplier that SUBTRACTS.
+        //
+        // GetInventoryChanges with init -- NOT the no-init form the affix pass
+        // uses, and not InitInventoryIfRequired by hand either. The initialising
+        // overload is the one that falls back to ForceInitInventoryChanges when
+        // the first attempt declines, which is the case for a container the
+        // engine does not think needs it yet. After this line the vanilla
+        // contents are real and we are strictly adding to them.
+        if (!a_refr->GetInventoryChanges()) {
+            return 0;
+        }
+
+        const auto level = static_cast<std::uint16_t>(std::clamp(a_level, 1, 0xFFFF));
+
+        std::size_t added = 0;
+        base->ForEachContainerObject([&](RE::ContainerObject& a_entry) {
+            if (!a_entry.obj) {
+                return RE::BSContainer::ForEachResult::kContinue;
+            }
+            auto* list = a_entry.obj->As<RE::TESLevItem>();
+            if (!list || a_entry.count <= 0) {
+                return RE::BSContainer::ForEachResult::kContinue;  // hand-placed
+            }
+
+            for (int pass = 0; pass < passes; ++pass) {
+                // Resolved fresh each pass rather than resolved once and added
+                // N times: the point is another ROLL, not another copy. Two
+                // passes on a bandit chest should be able to give a sword and a
+                // helmet, not the same sword twice.
+                RE::BSScrapArray<RE::CALCED_OBJECT> calced;
+                list->CalculateCurrentFormList(level,
+                    static_cast<std::int16_t>(a_entry.count), calced, 0, false);
+
+                for (const auto& calc : calced) {
+                    if (!calc.form || calc.count == 0) {
+                        continue;
+                    }
+                    auto* bound = calc.form->As<RE::TESBoundObject>();
+                    if (!bound) {
+                        continue;
+                    }
+                    a_refr->AddObjectToContainer(bound, nullptr,
+                        static_cast<std::int32_t>(calc.count), nullptr);
+                    added += calc.count;
+
+                    if (added >= kMaxExtraItemsPerContainer) {
+                        logger::warn(
+                            "distribute: {:08X} hit the {}-item bonus cap; the rest of the "
+                            "multiplier is dropped",
+                            a_refr->GetFormID(), kMaxExtraItemsPerContainer);
+                        return RE::BSContainer::ForEachResult::kStop;
+                    }
+                }
+            }
+
+            return RE::BSContainer::ForEachResult::kContinue;
+        });
+
+        return added;
+    }
+
     // A container has no level of its own, so it rolls at its encounter zone's --
     // which is what makes a Nordic ruin's loot match the ruin rather than the
-    // player who wandered in.
+    // player who wandered in. The same level feeds the bonus resolutions, so the
+    // extra loot belongs to the dungeon on exactly the terms its own loot does.
     void RollContainer(RE::TESObjectREFR* a_refr, bool a_force)
     {
+        if (!a_refr) {
+            return;
+        }
+
+        // ★THE CLAIM IS TAKEN HERE, not left to RollRef, and moving it is what
+        // makes the multiplier safe to add.
+        //
+        // RollRef deliberately does NOT mark a reference it found nothing to
+        // affix on -- an actor out of high process has no gear YET, and marking
+        // it would skip it forever. A container has no such "yet": we are about
+        // to initialise its inventory, and what comes back is final. Left on
+        // RollRef's terms, a chest holding only potions would go unmarked, and
+        // an unmarked chest is RESTOCKED on every single open -- a duplication
+        // bug that compounds for as long as the save lives.
+        //
+        // One claim, taken before anything is added, covering both halves.
+        if (!a_force && !Persist::MarkRolled(a_refr->GetFormID())) {
+            std::scoped_lock lock{ g_statsLock };
+            ++g_stats.skippedAlreadyRolled;
+            return;
+        }
+
+        const int level = EncounterLevelFor(a_refr);
+
+        // Stocked BEFORE the affix pass, so the bonus items are in the inventory
+        // when it walks them. The other order gives the player a fuller chest of
+        // entirely plain gear.
+        const auto added = StockContainer(a_refr, level);
+        if (added) {
+            std::scoped_lock lock{ g_statsLock };
+            ++g_stats.containersStocked;
+            g_stats.extraItemsAdded += added;
+        }
+
+        // Forced: the claim above already decided this container gets rolled,
+        // and RollRef must not re-ask a question that is now answered "yes".
         const auto before = g_stats.actorsRolled;
-        RollRef(a_refr, EncounterLevelFor(a_refr), false, a_force);
+        RollRef(a_refr, level, false, true);
         if (g_stats.actorsRolled != before) {
             std::scoped_lock lock{ g_statsLock };
             ++g_stats.containersRolled;
@@ -452,6 +628,68 @@ namespace
                 RollContainer(ref.get(), false);
             }
 
+            return RE::BSEventNotifyControl::kContinue;
+        }
+    };
+
+    // ★THE WAY BACK OUT OF THE ROLLED SET.
+    //
+    // Everything else here is about rolling a reference exactly once. This is
+    // the one thing that says "once" has expired: Skyrim resets references on
+    // the encounter zone's respawn timer, regenerating a chest's contents from
+    // its leveled lists while the reference keeps the FormID the mark is keyed
+    // on. A dungeon can be rerun, so its chests should be rollable again --
+    // otherwise the mod's own loot is a one-time event per container and every
+    // subsequent visit is more vanilla than the last.
+    //
+    // ★THE ENGINE'S OWN NOTIFICATION, NOT A TIMER, and that choice is the whole
+    // safety argument. Expiring marks on a guessed interval would eventually
+    // clear one for a container that had NOT reset, and the next open would
+    // stock it a second time on top of contents it still had -- duplication
+    // that compounds for the life of the save. This event fires because the
+    // reset happened; it cannot be early.
+    class ResetSink : public RE::BSTEventSink<RE::TESResetEvent>
+    {
+    public:
+        static ResetSink* GetSingleton()
+        {
+            static ResetSink singleton;
+            return &singleton;
+        }
+
+        RE::BSEventNotifyControl ProcessEvent(const RE::TESResetEvent*      a_event,
+            RE::BSTEventSource<RE::TESResetEvent>*) override
+        {
+            if (!a_event || !a_event->object) {
+                return RE::BSEventNotifyControl::kContinue;
+            }
+
+            // ★NO g_enabled CHECK, and the omission is deliberate. Every other
+            // sink here bails when distribution is off because it is about to
+            // ROLL something. This one only forgets, and a mark left standing
+            // through a reset because the mod happened to be switched off at
+            // that moment is a mark that is wrong for the rest of the save --
+            // nothing ever revisits it.
+            const auto formID = a_event->object->GetFormID();
+            if (Persist::ForgetRolled(formID)) {
+                std::scoped_lock lock{ g_statsLock };
+                ++g_stats.marksForgotten;
+            }
+
+            // ★ACTORS TOO, not just containers, and for the same reason rather
+            // than a different one. A respawned bandit is a fresh inventory
+            // wearing a familiar FormID; leaving him marked is how a rerun
+            // dungeon fills with vanilla gear. RollRef still defers an actor
+            // whose equipment has not been applied yet, so an early forget
+            // costs nothing -- he is rolled when the ticker next sees him
+            // carrying something.
+            //
+            // The mapping to enchantment tiers is deliberately NOT touched
+            // here. Those entries are keyed on created enchantments the engine
+            // is destroying along with the items; whether it also releases the
+            // created-object refcount is not something this code knows, and
+            // releasing one the engine has already released is a far worse
+            // failure than a stale map entry. See Apply::Release.
             return RE::BSEventNotifyControl::kContinue;
         }
     };
@@ -513,6 +751,7 @@ void Distribute::Install()
     }
 
     holder->AddEventSink<RE::TESObjectLoadedEvent>(ActorLoadSink::GetSingleton());
+    holder->AddEventSink<RE::TESResetEvent>(ResetSink::GetSingleton());
 
     if (auto* ui = RE::UI::GetSingleton()) {
         ui->AddEventSink<RE::MenuOpenCloseEvent>(ContainerMenuSink::GetSingleton());
@@ -602,6 +841,10 @@ void Distribute::LogStats()
     logger::info("  skipped, no ExtraDataList to attach to: {}", stats.wantedExtraList);
     logger::info("  containers opened {}, rolled {}", stats.containersOpened,
         stats.containersRolled);
+    logger::info("    stocked        {}   (+{} bonus items at x{:.2f})", stats.containersStocked,
+        stats.extraItemsAdded, Config::ContainerLootMultiplier());
+    logger::info("  marks forgotten  {}   (references the game reset -- respawned dungeons)",
+        stats.marksForgotten);
     logger::info("    affixed        {}", stats.itemsAffixed);
     logger::info("    rolled white   {}", stats.rolledWhite);
     logger::info("    enchanted      {}   (vanilla enchantment, skipped by design)",

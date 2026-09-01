@@ -441,6 +441,69 @@ namespace
         return live;
     }
 
+    // ★★★A MERGE REWRITES THE ENCHANTMENT ON AN ITEM THE PLAYER MAY BE WEARING,
+    // AND THE ACTOR DOES NOT NOTICE.
+    //
+    // The engine applies an item's enchantment when the item goes ON, and
+    // nothing re-reads it afterwards. The strip/restore round-trip gets away
+    // with that -- the same enchantment goes back on, so what the actor is
+    // running is still right -- but a MERGE does not: the item ends up carrying
+    // a new created enchantment with both effect sets while the player keeps
+    // running the affix-only one they had at equip time, and the two originals
+    // have just been released, so the effects on the actor belong to a form
+    // nothing holds any more.
+    //
+    // Taking the item off and putting it straight back is the whole fix. That
+    // is the one moment the engine reads the enchantment.
+    //
+    // ★DONE HERE, where the list that was rewritten is in hand and its hand is
+    // readable off ExtraWorn/ExtraWornLeft. Everything else that could notice
+    // this has to go looking for the change and then guess which unit moved.
+    //
+    // ★The list SURVIVES the unequip: the engine collapses an unworn unit into
+    // an identical stack, and a unit carrying a created enchantment is identical
+    // to nothing. Checked rather than assumed all the same -- equipping a freed
+    // list is not a bug that would announce itself.
+    void Reseat(RE::TESBoundObject* a_object, RE::ExtraDataList* a_xList)
+    {
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        auto* equipper = RE::ActorEquipManager::GetSingleton();
+        if (!player || !equipper || !a_object || !a_xList) {
+            return;
+        }
+        const bool left = a_xList->HasType<RE::ExtraWornLeft>();
+        if (!left && !a_xList->HasType<RE::ExtraWorn>()) {
+            return;   // in the pack: the next equip reads the new enchantment anyway
+        }
+
+        // Armour has no hand. A weapon has to go back to the one it came off --
+        // equipping without a slot sends it to the right, so a merged dagger in
+        // the left hand would jump hands as a side effect of enchanting it.
+        const RE::BGSEquipSlot* slot = nullptr;
+        if (IsWeapon(a_object)) {
+            slot = RE::TESForm::LookupByID<RE::BGSEquipSlot>(left ? 0x13F43 : 0x13F42);
+        }
+
+        // Silent and immediate: the player is standing at a table watching a
+        // menu close, not equipping anything.
+        equipper->UnequipObject(player, a_object, a_xList, 1, slot,
+            false, false, false, true);
+
+        const auto live = LivePlayerLists();
+        if (std::none_of(live.begin(), live.end(),
+                [&](const Live& l) { return l.xList == a_xList; })) {
+            logger::warn("enchanting: {} came off but its extra list did not survive -- "
+                         "leaving it off rather than equipping a freed list",
+                a_object->GetName());
+            return;
+        }
+
+        equipper->EquipObject(player, a_object, a_xList, 1, slot,
+            false, false, false, true);
+        logger::info("enchanting: reseated worn {} ({} hand) so the merged enchantment applies",
+            a_object->GetName(), IsWeapon(a_object) ? (left ? "left" : "right") : "no");
+    }
+
     // Puts one stash back onto a list that now carries a player enchantment.
     // Returns whether the affixes actually made it onto the item; a_stash.handled
     // says whether the stash was consumed either way, and the two differ exactly
@@ -492,6 +555,12 @@ namespace
         logger::info("enchanting: merged affixes into the player's enchantment on {} "
                      "({:08X} + {:08X} -> {:08X})",
             a_stash.object ? a_stash.object->GetName() : "?", playerID, ourID, mergedID);
+
+        // ★The merge is the only path that changes WHICH enchantment an item
+        // carries, so it is the only one that has to put a worn item back on.
+        // (The restore path above reattaches the very same enchantment, which
+        // the actor is already running.)
+        Reseat(a_stash.object, a_xList);
 
         a_stash.handled = true;
         return true;

@@ -37,6 +37,23 @@ namespace Persist
     [[nodiscard]] bool        WasRolled(RE::FormID a_actor);
     [[nodiscard]] std::size_t RolledCount();
 
+    // Drops one mark, so the reference is eligible again. Returns true if there
+    // was one to drop.
+    //
+    // ★THE ONLY WAY BACK OUT OF THE SET, and it exists for one reason: Skyrim
+    // RESETS references. A dungeon respawns on its encounter zone's timer, the
+    // chest's contents are regenerated from scratch, and the reference keeps
+    // the FormID it always had -- so the mark, which is keyed on exactly that,
+    // outlives the loot it was describing. Without this, a chest is Diablo loot
+    // once and vanilla loot for the rest of the save, which is backwards: the
+    // dungeon can be rerun, so its rewards should be rollable again.
+    //
+    // Called from the engine's own reset notification rather than a timer. An
+    // interval guessed short would re-stock a container that never actually
+    // reset, and that duplication compounds for as long as the save lives;
+    // TESResetEvent cannot be wrong about whether the reset happened.
+    bool ForgetRolled(RE::FormID a_actor);
+
     // ---- affix band, keyed by the created enchantment ---------------------
     //
     // What an item rolled, in a form another mod's UI can ask about while it

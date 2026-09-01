@@ -68,6 +68,19 @@ namespace Distribute
         // fact that containers were never arriving at all.
         std::uint64_t containersOpened{ 0 };
         std::uint64_t containersRolled{ 0 };
+        // The loot multiplier's work, counted separately from the affix pass:
+        // the two can each be doing nothing for completely different reasons,
+        // and one number covering both would hide either. Zero here with a
+        // multiplier above 1 means the containers being opened have no leveled
+        // entries to re-roll -- which is a real answer, not a failure.
+        std::uint64_t containersStocked{ 0 };
+        std::uint64_t extraItemsAdded{ 0 };
+        // Marks dropped because the engine reset the reference -- a respawned
+        // dungeon, mostly. Worth counting on its own: it is the only number
+        // that says whether rerunning a dungeon actually gives fresh loot, and
+        // a flat zero after a respawn timer has elapsed is the signal that
+        // TESResetEvent is not reaching us.
+        std::uint64_t marksForgotten{ 0 };
         // Vanilla-enchanted items, skipped by design.
         std::uint64_t skippedEnchanted{ 0 };
         // Actors reached before their inventory existed. NOT marked, so they get
