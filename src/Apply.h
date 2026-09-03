@@ -77,6 +77,13 @@ namespace Apply
         RE::EnchantmentItem* enchantment{ nullptr };
         std::string          name;
 
+        // ★A REFUSAL IS NOT A FAILURE, and the caller needs to be able to tell
+        // them apart. ToNewInstance backs out when the instance the engine hands
+        // it is one it may not touch -- an ordinary, expected outcome, with the
+        // item unharmed and back in the inventory. Counting that as a failed
+        // attach would put a warning in the log for something working correctly.
+        bool declined{ false };
+
         explicit operator bool() const { return enchantment != nullptr; }
     };
 
@@ -106,6 +113,12 @@ namespace Apply
     // inventory and doing the entry accounting itself. Nothing here constructs
     // an entry, a count, or an extra list.
     //
+    // ★AND THE DROP IS ALSO HOW WE FIND OUT WHICH INSTANCE WE GOT. RemoveItem
+    // takes a count, not an instance, so on a stack the engine chooses -- and
+    // the reference it hands back carries that instance's own ExtraDataList,
+    // which answers the question directly. An instance that is already enchanted
+    // or alias-bound is picked straight back up untouched and `declined` is set.
+    //
     // ★RECORDED SO IT IS NOT REDISCOVERED: what was tried before this, and what
     // it did. Measured over four builds in a live game.
     //
@@ -124,6 +137,17 @@ namespace Apply
     // a_refr must be an Actor whose inventory holds the item.
     Applied ToNewInstance(const roll::RolledItem& a_rolled, RE::TESBoundObject* a_object,
         RE::TESObjectREFR* a_refr);
+
+    // Whether ToNewInstance is mid-surgery ON THIS THREAD.
+    //
+    // ★THE DROP AND THE PICKUP ARE INVENTORY CHANGES LIKE ANY OTHER, and the
+    // engine announces them. On the player that means a TESContainerChangedEvent
+    // that is indistinguishable from a script grant -- one item, out of nothing,
+    // into the player -- because from the engine's side that is exactly what a
+    // pickup is. Anything sinking that event has to be able to tell our own
+    // surgery apart from the world's, and this is how: the event is dispatched
+    // synchronously, on this thread, from inside PickUpObject.
+    [[nodiscard]] bool InSurgery();
 
     // Releases a created enchantment previously attached by ToItem, decrementing
     // the manager's refcount rather than merely unhooking the extra data.

@@ -237,7 +237,7 @@ namespace
 }
 
 SKSEPluginInfo(
-    .Version              = { 0, 1, 0, 0 },
+    .Version              = { 1, 0, 0, 0 },
     .Name                 = "DiabloInSkyrim",
     .Author               = "Wesley",
     .RuntimeCompatibility = SKSE::VersionIndependence::AddressLibrary)

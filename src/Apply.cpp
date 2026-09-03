@@ -446,10 +446,39 @@ Apply::Applied Apply::ToItem(const roll::RolledItem& a_rolled, RE::TESBoundObjec
     return result;
 }
 
+namespace
+{
+    // ★THREAD-LOCAL, AND A COUNT RATHER THAN A FLAG. The events raised by the
+    // drop and the pickup are dispatched synchronously on the calling thread, so
+    // a thread_local is exactly the right scope -- a Distribute task rolling an
+    // NPC on the main thread must not blind a sink to something happening
+    // elsewhere. The count, not a bool, because nothing here promises this is
+    // never re-entered and a nested clear would lift the guard early.
+    thread_local int t_surgeryDepth = 0;
+
+    struct SurgeryScope
+    {
+        SurgeryScope() { ++t_surgeryDepth; }
+        ~SurgeryScope() { --t_surgeryDepth; }
+
+        SurgeryScope(const SurgeryScope&)            = delete;
+        SurgeryScope& operator=(const SurgeryScope&) = delete;
+    };
+}
+
+bool Apply::InSurgery()
+{
+    return t_surgeryDepth > 0;
+}
+
 Apply::Applied Apply::ToNewInstance(const roll::RolledItem& a_rolled,
     RE::TESBoundObject* a_object, RE::TESObjectREFR* a_refr)
 {
     Applied result;
+
+    // Raised for the whole function, not just around PickUpObject: the drop is
+    // an inventory change too, and it is announced the same way.
+    const SurgeryScope surgery;
 
     auto* actor = a_refr ? a_refr->As<RE::Actor>() : nullptr;
     if (!actor || !a_object) {
@@ -485,6 +514,37 @@ Apply::Applied Apply::ToNewInstance(const roll::RolledItem& a_rolled,
     auto dropped = handle.get();
     if (!dropped) {
         abandon("the drop produced no reference");
+        return result;
+    }
+
+    // ★STEP 1b: LOOK AT WHAT WE ACTUALLY GOT, because we did not choose it.
+    //
+    // RemoveItem takes a COUNT, not an instance. If the player holds three
+    // Silver Rings and one of them is already enchanted, the engine picks which
+    // one leaves the stack and it may well pick that one -- and SetEnchantment
+    // on it would overwrite a roll the player already had, stranding the old
+    // created enchantment with nothing left to call Release on it.
+    //
+    // The caller used to head this off by refusing the whole stack whenever ANY
+    // instance was enchanted, which is safe and much too broad: it skipped every
+    // reward of a record the player was already carrying an affixed copy of, and
+    // rings and common armour are exactly the records that duplicate. It was not
+    // a decision that had to be made before the drop. A dropped reference brings
+    // its own ExtraDataList with it, so the question the guard was guessing at
+    // is simply readable here, and the answer is about THIS instance rather than
+    // about the stack it came from.
+    //
+    // Wrong instance: hand it straight back the same way step 3 hands back the
+    // right one, and leave. Nothing has been written to it.
+    if (!IsEligible(a_object, &dropped->extraList)) {
+        actor->PickUpObject(dropped.get(), 1, false, false);
+        result.declined = true;
+        if (auto* manager = RE::BGSCreatedObjectManager::GetSingleton()) {
+            manager->DestroyEnchantment(ench, weapon);
+        }
+        logger::info("apply[{:08X}]: left unrolled -- the engine handed back an instance that "
+                     "already carries an enchantment or a quest alias; it has been returned",
+            id);
         return result;
     }
 

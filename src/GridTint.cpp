@@ -30,7 +30,7 @@ namespace
                (std::uint32_t{ a_g } << 8) | std::uint32_t{ a_r };
     }
 
-    // The four bands, in the order roll::Band declares them. White is absent on
+    // The five bands, in the order roll::Band declares them. White is absent on
     // purpose: a band-0 item is an ordinary item and must look like one, so the
     // tier query answers 0 for it and the host draws what it always drew.
     //
@@ -39,14 +39,21 @@ namespace
     // IS the least interesting enchanted thing on the board, and having it read
     // as a slightly brighter version of the colour it would have had anyway is
     // the honest presentation.
+    //
+    // Red sits a step past orange in hue and a step down in brightness, so the
+    // two read as neighbours on one scale rather than as unrelated colours --
+    // and so it is not the pure red the host uses for damage and warnings.
     constexpr std::uint32_t kPalette[]{
         Rgba(105, 155, 255),   // 1  blue     tiers 1-3
         Rgba(240, 215, 100),   // 2  yellow   tiers 4-6
         Rgba(185, 120, 240),   // 3  purple   tiers 7-9
         Rgba(255, 140, 60),    // 4  orange   tiers 10-12
+        Rgba(230, 60, 70),     // 5  red      tiers 13-15
     };
     static_assert(std::size(kPalette) <= GridInvAPI::kMaxTintTier,
                   "the ABI cannot carry this many bands");
+    static_assert(std::size(kPalette) == static_cast<std::size_t>(roll::kBandCount) - 1,
+                  "one colour per non-white band, in roll::Band order");
 
     // ---- the tables the host calls ---------------------------------------
 

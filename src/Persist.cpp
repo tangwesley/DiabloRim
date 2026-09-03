@@ -288,6 +288,15 @@ bool Persist::WasRolled(RE::FormID a_actor)
     return g_rolled.contains(a_actor);
 }
 
+bool Persist::ForgetRolled(RE::FormID a_actor)
+{
+    if (a_actor == 0) {
+        return false;
+    }
+    std::scoped_lock lock{ g_lock };
+    return g_rolled.erase(a_actor) > 0;
+}
+
 std::size_t Persist::RolledCount()
 {
     std::scoped_lock lock{ g_lock };

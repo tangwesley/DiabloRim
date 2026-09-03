@@ -14,7 +14,9 @@
 //    4. what value        -- uniform inside that tier's band
 //
 //  Item tier is the sum of the points, which is what makes it a power budget
-//  rather than a label: 0-12 falls out of 0-4 affixes worth 1-3 each.
+//  rather than a label: 0-15 falls out of 0-5 affixes worth 1-3 each. The fifth
+//  affix is gated on item level (Tuning::fifthAffixMinLevel), and with it the
+//  red band, which nothing short of five affixes can reach.
 // =============================================================================
 
 #include "Roll.h"
@@ -113,7 +115,10 @@ namespace roll
         if (a_tier <= 9) {
             return Band::kPurple;
         }
-        return Band::kOrange;
+        if (a_tier <= 12) {
+            return Band::kOrange;
+        }
+        return Band::kRed;
     }
 
     const char* BandName(Band a_band) noexcept
@@ -124,6 +129,7 @@ namespace roll
         case Band::kYellow: return "yellow";
         case Band::kPurple: return "purple";
         case Band::kOrange: return "orange";
+        case Band::kRed:    return "red";
         }
         return "?";
     }
@@ -177,7 +183,7 @@ namespace roll
     // compile-time constant -- and this runs once per item card, which is
     // nowhere near hot enough to be worth a table that could go stale.
     //
-    // ★THE BAND IS THE COUNT. Band::kBlue is 1, kOrange is 4, and the enum's
+    // ★THE BAND IS THE COUNT. Band::kBlue is 1, kRed is 5, and the enum's
     // order is the repeat count -- so this is a cast rather than a switch, and
     // adding a band in the middle would change the marks without touching this
     // function. That is intended: the mark IS the band's ordinal.
@@ -264,8 +270,8 @@ namespace roll
 
         // ★TIER, AS A REPEATED MARKER, TRAILING -- AND OPTIONAL.
         //
-        // BAND, not raw tier. Twelve marks would be a wall of glyphs, and one
-        // mark per band maps 1:1 onto white/blue/yellow/purple/orange.
+        // BAND, not raw tier. Fifteen marks would be a wall of glyphs, and one
+        // mark per band maps 1:1 onto white/blue/yellow/purple/orange/red.
         //
         // TRAILING, because a leading marker reorders every alphabetical item
         // list in the game.
@@ -294,6 +300,20 @@ namespace roll
         }
 
         auto countWeights = Interpolate(a_tuning.bands, a_ctx.itemLevel, &Curve::countWeights);
+
+        // ★THE FIFTH AFFIX HAS A FLOOR THE CURVE CANNOT LOWER. Interpolation
+        // ramps every weight smoothly, and a smooth ramp from zero at 25 to
+        // something at 40 is not zero at 30. Red is defined as the band only a
+        // fifth affix can reach, and the design says red starts at 35 -- so
+        // below that the weight is taken away here, after the curve has had its
+        // say, rather than trusted to a band that would have to be tuned to
+        // land exactly on zero.
+        //
+        // Done BEFORE the noWhite adjustment so its "every weight is zero"
+        // fallback sees the weights that will actually be drawn from.
+        if (a_ctx.itemLevel < a_tuning.fifthAffixMinLevel) {
+            countWeights[static_cast<std::size_t>(kMaxAffixes)] = 0;
+        }
 
         if (a_ctx.noWhite) {
             countWeights[0] = 0;

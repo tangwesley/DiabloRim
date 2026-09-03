@@ -441,6 +441,167 @@ namespace
         return live;
     }
 
+    // ★★★A MERGE REWRITES THE ENCHANTMENT ON AN ITEM THE PLAYER MAY BE WEARING,
+    // AND THE ACTOR DOES NOT NOTICE.
+    //
+    // The engine applies an item's enchantment when the item goes ON, and
+    // nothing re-reads it afterwards. The strip/restore round-trip gets away
+    // with that -- the same enchantment goes back on, so what the actor is
+    // running is still right -- but a MERGE does not: the item ends up carrying
+    // a new created enchantment with both effect sets while the player keeps
+    // running the affix-only one they had at equip time.
+    //
+    // Taking the item off and putting it back is the whole fix. That is the one
+    // moment the engine reads the enchantment.
+    //
+    // ★★★OFF BEFORE ANYTHING IS RELEASED, ON AFTER. The first version of this
+    // took the item off and put it back AFTER the old enchantments had been
+    // destroyed, and it crashed the game, measured on 1.6.1170:
+    //
+    //   A worn weapon's enchantment is the actor's SELECTED MAGIC ITEM for that
+    //   hand (Actor::selectedSpells). Destroying the player's enchantment while
+    //   the weapon was still on left that slot pointing at a freed form. The
+    //   re-equip then had the engine revert the old selection first, which
+    //   reads the dead form's id through the dangling pointer and sends an
+    //   unequip TESEquipEvent naming it. PAPER's equip sink looks the id up,
+    //   gets null, and reads formType off it -- EXCEPTION_ACCESS_VIOLATION at
+    //   0x1A, with Scrambled Bugs' weapon-charge fix on the stack between the
+    //   two because it is what calls the selection routine.
+    //
+    // Unequipping FIRST has the engine clear that slot while the old form is
+    // still alive, so nothing anywhere holds it when it goes. The same ordering
+    // covers the failure path: an affix enchantment released on a worn item is
+    // the same dangling slot from the other side.
+    //
+    // ★The list SURVIVES the unequip: the engine collapses an unworn unit into
+    // an identical stack, and a unit carrying a created enchantment is identical
+    // to nothing. Checked rather than assumed all the same -- writing through a
+    // freed list is not a bug that would announce itself.
+    struct Seat
+    {
+        bool worn{ false };
+        bool left{ false };
+        const RE::BGSEquipSlot* slot{ nullptr };
+    };
+
+    // Where the list is worn. ★READ BEFORE THE UNEQUIP: ExtraWorn/ExtraWornLeft
+    // are stripped on the way off, and nothing else remembers the hand.
+    Seat WhereWorn(RE::TESBoundObject* a_object, RE::ExtraDataList* a_xList)
+    {
+        Seat seat;
+        if (!a_object || !a_xList) {
+            return seat;
+        }
+        seat.left = a_xList->HasType<RE::ExtraWornLeft>();
+        seat.worn = seat.left || a_xList->HasType<RE::ExtraWorn>();
+
+        // Armour has no hand. A weapon has to go back to the one it came off --
+        // equipping without a slot sends it to the right, so a merged dagger in
+        // the left hand would jump hands as a side effect of enchanting it.
+        if (seat.worn && IsWeapon(a_object)) {
+            seat.slot = RE::TESForm::LookupByID<RE::BGSEquipSlot>(seat.left ? 0x13F43 : 0x13F42);
+        }
+        return seat;
+    }
+
+    // Takes a worn list off. Returns whether the list is still safe to touch:
+    // true when it was not worn (nothing happened) or it came off and survived,
+    // false when the engine freed it on the way off.
+    bool TakeOff(RE::TESBoundObject* a_object, RE::ExtraDataList* a_xList, const Seat& a_seat)
+    {
+        if (!a_seat.worn) {
+            return true;
+        }
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        auto* equipper = RE::ActorEquipManager::GetSingleton();
+        if (!player || !equipper) {
+            return true;
+        }
+
+        // Silent and immediate: the player is standing at a table watching a
+        // menu close, not equipping anything.
+        equipper->UnequipObject(player, a_object, a_xList, 1, a_seat.slot,
+            false, false, false, true);
+
+        const auto live = LivePlayerLists();
+        const bool survived = std::any_of(live.begin(), live.end(),
+            [&](const Live& l) { return l.xList == a_xList; });
+        if (!survived) {
+            logger::warn("enchanting: {} came off but its extra list did not survive -- "
+                         "leaving it off rather than writing through a freed list",
+                a_object->GetName());
+        }
+        return survived;
+    }
+
+    void PutOn(RE::TESBoundObject* a_object, RE::ExtraDataList* a_xList, const Seat& a_seat,
+        const char* a_why)
+    {
+        if (!a_seat.worn) {
+            return;
+        }
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        auto* equipper = RE::ActorEquipManager::GetSingleton();
+        if (!player || !equipper) {
+            return;
+        }
+        equipper->EquipObject(player, a_object, a_xList, 1, a_seat.slot,
+            false, false, false, true);
+        logger::info("enchanting: reseated worn {} ({} hand) {}",
+            a_object->GetName(), IsWeapon(a_object) ? (a_seat.left ? "left" : "right") : "no",
+            a_why);
+    }
+
+    // Releases an affix enchantment that is no longer attached to any list --
+    // but might still be what the player's hand is RUNNING. The affixes came
+    // off the list when the table opened, not off the actor: if the item was
+    // worn then and nothing has re-equipped it since, the hand slot still names
+    // this form, and destroying it is the dangling-slot crash described above
+    // Seat. Checked against the hand slots themselves; a worn unit of the same
+    // base object is taken off first and put back after.
+    void ReleaseOursOffHands(RE::EnchantmentItem* a_ench, RE::TESBoundObject* a_object,
+        bool a_isWeapon)
+    {
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        if (!a_ench || !a_object || !player) {
+            ReleaseOurs(a_ench, a_isWeapon);
+            return;
+        }
+
+        const auto& runtime = player->GetActorRuntimeData();
+        const bool inHand = runtime.selectedSpells[RE::Actor::SlotTypes::kLeftHand] == a_ench ||
+                            runtime.selectedSpells[RE::Actor::SlotTypes::kRightHand] == a_ench;
+        if (!inHand) {
+            ReleaseOurs(a_ench, a_isWeapon);
+            return;
+        }
+
+        struct Worn
+        {
+            RE::ExtraDataList* xList;
+            Seat               seat;
+        };
+        std::vector<Worn> worn;
+        for (const auto& l : LivePlayerLists()) {
+            if (l.object != a_object) {
+                continue;
+            }
+            const Seat seat = WhereWorn(a_object, l.xList);
+            if (seat.worn && TakeOff(a_object, l.xList, seat)) {
+                worn.push_back({ l.xList, seat });
+            }
+        }
+        logger::info("enchanting: {:08X} was still selected in a hand; took {} unit(s) of {} off "
+                     "before releasing it",
+            a_ench->GetFormID(), worn.size(), a_object->GetName());
+
+        ReleaseOurs(a_ench, a_isWeapon);
+
+        for (const auto& w : worn) {
+            PutOn(a_object, w.xList, w.seat, "after releasing its affixes");
+        }
+    }
+
     // Puts one stash back onto a list that now carries a player enchantment.
     // Returns whether the affixes actually made it onto the item; a_stash.handled
     // says whether the stash was consumed either way, and the two differ exactly
@@ -456,6 +617,20 @@ namespace
         const auto charge = xEnch->charge;
         const bool removeOnUnequip = xEnch->removeOnUnequip;
 
+        // Off first -- see the note above Seat. Nothing below may release a
+        // form while the actor could still be running it.
+        const Seat seat = WhereWorn(a_stash.object, a_xList);
+        if (!TakeOff(a_stash.object, a_xList, seat)) {
+            // The list is gone, so there is nothing to merge onto and nothing
+            // to write. The player's enchantment went wherever the unit went;
+            // ours is held by nobody but us.
+            logger::error("enchanting: releasing the affixes for {} -- no list left to merge onto",
+                a_stash.object ? a_stash.object->GetName() : "?");
+            ReleaseOurs(a_stash.ench, a_stash.isWeapon);
+            a_stash.handled = true;
+            return false;
+        }
+
         auto* merged = MergeEnchantments(playerEnch, a_stash.ench, a_stash.isWeapon);
         if (!merged) {
             // Nothing has been taken apart yet, so the honest outcome is the
@@ -466,6 +641,7 @@ namespace
                 a_stash.object ? a_stash.object->GetName() : "?");
             ReleaseOurs(a_stash.ench, a_stash.isWeapon);
             a_stash.handled = true;
+            PutOn(a_stash.object, a_xList, seat, "after releasing the affixes");
             return false;
         }
 
@@ -479,7 +655,8 @@ namespace
         // Two references dropped, one taken. Building the merge incremented for
         // `merged`; the extra list we just rewrote held one for the player's
         // enchantment, and we have been holding one for ours since the menu
-        // opened. Both of those are now unheld and have to be told so.
+        // opened. Both of those are now unheld and have to be told so -- and
+        // the item is off, so the actor holds neither either.
         if (auto* manager = RE::BGSCreatedObjectManager::GetSingleton()) {
             manager->DestroyEnchantment(playerEnch, a_stash.isWeapon);
             manager->DestroyEnchantment(a_stash.ench, a_stash.isWeapon);
@@ -492,6 +669,10 @@ namespace
         logger::info("enchanting: merged affixes into the player's enchantment on {} "
                      "({:08X} + {:08X} -> {:08X})",
             a_stash.object ? a_stash.object->GetName() : "?", playerID, ourID, mergedID);
+
+        // Back on, so the equip reads the merged enchantment and the hand's
+        // selection points at a form that exists.
+        PutOn(a_stash.object, a_xList, seat, "so the merged enchantment applies");
 
         a_stash.handled = true;
         return true;
@@ -595,7 +776,7 @@ namespace
             logger::warn("enchanting: lost track of the affixed {} ({} unclaimed, {} candidate(s)); "
                          "releasing its enchantment rather than guessing",
                 orphan->object ? orphan->object->GetName() : "?", claimants, candidates);
-            ReleaseOurs(orphan->ench, orphan->isWeapon);
+            ReleaseOursOffHands(orphan->ench, orphan->object, orphan->isWeapon);
             orphan->handled = true;
             ++lost;
         }

@@ -36,6 +36,25 @@ namespace Config
     // worth more than the line it costs.
     [[nodiscard]] bool QuestRewardsEnabled();
 
+    // How much loot a container hands over, as a multiplier on its LEVELED
+    // entries. 1.0 is vanilla and the default; 3.0 resolves the leveled lists a
+    // chest is built from three times over instead of once.
+    //
+    // ★A MULTIPLIER ON THE ROLL, NOT ON THE CONTENTS, and the difference is the
+    // whole safety argument. Hand-placed entries -- the specific sword a level
+    // designer put in that specific chest -- are never touched, because
+    // duplicating one is duplicating something the world was authored around.
+    // Only entries that were random to begin with are rolled again, which is
+    // the same thing the engine already did once.
+    //
+    // Fractional values work and are the honest way to say "a bit more": 1.5 is
+    // a second resolution half the time, not half an item.
+    //
+    // Clamped to [1, 10] on read. Below 1 is not implemented -- taking loot
+    // away means deciding WHICH item to drop, and that is a different feature
+    // wearing the same setting.
+    [[nodiscard]] float ContainerLootMultiplier();
+
     // ★Off by default, and it is a TOOL rather than a feature.
     //
     // Discovery walks every third-party enchantment effect in the load order and
@@ -49,7 +68,7 @@ namespace Config
     [[nodiscard]] bool VerboseSurvey();
 
     // The glyph repeated once per band at the end of a rolled item's name --
-    // one for blue, four for orange. Empty means no marker at all.
+    // one for blue, five for red. Empty means no marker at all.
     //
     // ★THE VALUE IS TAKEN VERBATIM, whatever it is: a diamond, a star, an
     // asterisk, a word. Which glyphs actually draw depends on the player's
