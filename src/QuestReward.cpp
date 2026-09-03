@@ -56,12 +56,30 @@ namespace
     // How long an entry must sit before it is touched. The mutation is over
     // within a frame or two; this is generous because being early costs an
     // inventory and being late costs a second.
-    constexpr auto kSettle = std::chrono::milliseconds{ 1000 };
+    //
+    // ★THIS IS THE ONE WITH A CRASH BEHIND IT, so it moves cautiously and it
+    // moves alone. 500ms is still thirty frames against a mutation that is done
+    // in one or two, and InventoryIsBusy covers the menu-driven bursts on its
+    // own account -- but if anything ever faults in this path again, this is the
+    // first number to put back to 1000 and the last one to touch afterwards.
+    constexpr auto kSettle = std::chrono::milliseconds{ 500 };
 
     // How often the drain looks. Independent of kSettle on purpose: the tick
     // rate decides latency, the settle time decides safety, and tangling them
     // means a change to one silently moves the other.
-    constexpr auto kTickInterval = std::chrono::milliseconds{ 500 };
+    //
+    // ★AND THIS ONE IS PURE DEAD TIME, WHICH IS WHY IT IS SMALL. It buys no
+    // safety at all: an entry that is ready waits here for no reason but the
+    // sleep. It was 500ms, and that was the whole of the visible delay in the
+    // ordinary case -- by the time a dialogue has been read and closed the
+    // settle has long since elapsed, so what the player was waiting on was the
+    // thread getting round to looking. It is also what put a plain item in front
+    // of anyone who opened their inventory to check: the drain cannot run while
+    // that menu is up, so the roll landed a further half-second after it closed.
+    //
+    // The cost of looking often is a mutex and an empty test; the thread does
+    // not wake the main thread at all unless something is owed.
+    constexpr auto kTickInterval = std::chrono::milliseconds{ 100 };
 
     constexpr std::size_t kMaxPending = 64;
 
@@ -90,7 +108,16 @@ namespace
 
     // ---------------------------------------------------------- the guards
     //
-    // Whether the player's inventory says to leave this alone.
+    // Whether the player's inventory says to leave this alone, AND WHICH OF THE
+    // REASONS IT WAS.
+    //
+    // ★THE REASON IS RETURNED RATHER THAN COLLAPSED TO A BOOL, and that is worth
+    // the enum. These refusals have nothing to do with each other -- one is the
+    // quest protecting its own item, one is the player having pinned a hotkey,
+    // one is the item having left the inventory before it settled -- and folding
+    // them into a single "ineligible" counter meant a reward that silently did
+    // not roll gave the log no way to say why. That is exactly the question a
+    // plain reward raises, so the log has to be able to answer it.
     //
     // ★ASKED OF THE ENTRY, NOT OF EXTRA DATA. InventoryEntryData::IsQuestObject
     // covers quest items more thoroughly than a kAliasInstanceArray probe -- the
@@ -99,24 +126,75 @@ namespace
     // alias at all, so this refuses rarely; when it does, the quest had a reason
     // to name that instance and we are not going to argue with it.
     //
+    // ★BOTH ARE ASKED OF THE WHOLE STACK, AND ONLY THESE TWO ARE. An entry
+    // covers every instance of a base record the player holds, and a script
+    // grant arrives with no extra data of its own, so there is nothing here to
+    // distinguish the new one by; Apply::ToNewInstance cannot aim either, since
+    // it removes ONE of the record and the engine chooses which. Refusing the
+    // whole stack is therefore the only answer available BEFORE the drop, and it
+    // is kept for the two cases where the drop itself would already have done
+    // the damage:
+    //
+    //   a quest alias -- an instance a quest is going to ask for back
+    //   a hotkey      -- dropping a favourited item clears the favourite, and
+    //                    handing it back does not restore it, so there is no
+    //                    such thing as looking and then undoing
+    //
+    // ★AND NOT "ALREADY ENCHANTED", WHICH USED TO BE HERE AND WAS TOO BROAD. It
+    // skipped every reward of a record the player already carried an affixed
+    // copy of -- rings and common armour above all, which are exactly the
+    // records that duplicate. Measured: a Silver Garnet Ring rolled and a Silver
+    // Ring did not, one minute apart, because the second one had a companion in
+    // the pack. That decision does not have to be made blind: a dropped
+    // reference brings its own ExtraDataList, so ToNewInstance reads it and
+    // returns the instance untouched if it drew the wrong one. See Apply.h.
+    //
     // Safe to walk here and NOT in the event, which is the distinction the
     // crashes taught: by drain time the engine has finished with the list.
-    bool RefusedByEntry(RE::TESObjectREFR* a_refr, RE::TESBoundObject* a_object)
+    enum class Refusal
+    {
+        kNone,
+        kQuestObject,
+        kFavourited,
+        kGone
+    };
+
+    const char* Describe(Refusal a_refusal)
+    {
+        switch (a_refusal) {
+        case Refusal::kQuestObject:
+            return "a quest owns an instance of it";
+        case Refusal::kFavourited:
+            return "an instance of it is favourited";
+        case Refusal::kGone:
+            return "no longer in the inventory";
+        default:
+            return "";
+        }
+    }
+
+    Refusal InspectEntry(RE::TESObjectREFR* a_refr, RE::TESBoundObject* a_object)
     {
         // NO-INIT. The init path populates inventory data as a side effect -- it
         // is a writer, not a reader -- and this function only asks questions.
         auto* changes = a_refr->GetInventoryChanges(true);
         if (!changes || !changes->entryList) {
-            return false;
+            return Refusal::kNone;
         }
         for (auto* entry : *changes->entryList) {
             if (!entry || entry->object != a_object) {
                 continue;
             }
-            return entry->IsQuestObject() || entry->IsFavorited() || entry->IsEnchanted();
+            if (entry->IsQuestObject()) {
+                return Refusal::kQuestObject;
+            }
+            if (entry->IsFavorited()) {
+                return Refusal::kFavourited;
+            }
+            return Refusal::kNone;
         }
         // Not in the inventory any more -- sold or dropped while it settled.
-        return true;
+        return Refusal::kGone;
     }
 
     void RollReward(RE::TESBoundObject* a_object)
@@ -131,14 +209,37 @@ namespace
             ++(g_stats.*a_field);
         };
 
-        if (RefusedByEntry(player, a_object) || !Apply::IsEligible(a_object, nullptr)) {
-            bump(&QuestReward::Stats::ineligible);
+        // ★NAMED IN THE LOG, EVERY TIME. A reward that rolls says so; until now a
+        // reward that did NOT roll said nothing at all, and the only symptom the
+        // player got was a plain item and no way to tell a refusal from a bug.
+        const auto refused = [&](const char* a_why, std::uint64_t QuestReward::Stats::* a_field) {
+            bump(a_field);
+            logger::info("quest reward: {:08X} '{}' not rolled -- {}", a_object->GetFormID(),
+                a_object->GetName(), a_why);
+        };
+
+        switch (const auto refusal = InspectEntry(player, a_object)) {
+        case Refusal::kQuestObject:
+            refused(Describe(refusal), &QuestReward::Stats::questObject);
+            return;
+        case Refusal::kFavourited:
+            refused(Describe(refusal), &QuestReward::Stats::favourited);
+            return;
+        case Refusal::kGone:
+            refused(Describe(refusal), &QuestReward::Stats::gone);
+            return;
+        default:
+            break;
+        }
+
+        if (!Apply::IsEligible(a_object, nullptr)) {
+            refused("not a weapon or armour record", &QuestReward::Stats::ineligible);
             return;
         }
 
         const auto slots = Apply::SlotsOf(a_object);
         if (slots == roll::kNone) {
-            bump(&QuestReward::Stats::ineligible);
+            refused("carries no slot this system affixes", &QuestReward::Stats::ineligible);
             return;
         }
 
@@ -168,7 +269,16 @@ namespace
 
         const auto applied = Apply::ToNewInstance(rolled, a_object, player);
         if (!applied) {
-            bump(&QuestReward::Stats::attachFailed);
+            // Declined is the surgery reporting that the instance the engine
+            // handed it was not one it may touch -- the item is back in the
+            // inventory, unharmed, and this is an ordinary outcome. Only a
+            // genuine failure gets the warning.
+            if (applied.declined) {
+                refused("the engine drew an instance that was already enchanted",
+                    &QuestReward::Stats::alreadyEnchanted);
+            } else {
+                bump(&QuestReward::Stats::attachFailed);
+            }
             return;
         }
 
@@ -254,6 +364,106 @@ namespace
     // piece of gear. Everything else is counted and left alone.
     constexpr std::int32_t kMaxRewardCount = 1;
 
+    // ------------------------------------------------- the activation ledger
+    //
+    // ★WHAT THE PLAYER IS ABOUT TO PICK UP, held just long enough for the grant
+    // that follows to be recognised as a pickup. QuestReward.h has the full
+    // reasoning; the short version is that TESContainerChangedEvent cannot tell
+    // a pickup from a script grant, and TESActivateEvent can, because it names
+    // the world reference and it fires FIRST.
+    //
+    // Matched on the BASE object rather than the reference: the reference is
+    // gone by the time the grant arrives -- it was consumed by the pickup -- and
+    // the base object is the only thing the two events have in common.
+    struct Activated
+    {
+        RE::FormID                            baseObj{ 0 };
+        std::chrono::steady_clock::time_point at{};
+    };
+
+    std::mutex             g_activatedLock;
+    std::vector<Activated> g_activated;
+
+    // ★CONSUMED ON MATCH, not merely looked up. One activation excuses one
+    // grant. A window alone would let a single pickup shield every reward of the
+    // same base record for as long as it lasted, and "you had just picked up an
+    // iron sword" is not a reason to leave the iron sword a quest handed you
+    // unrolled.
+    constexpr auto kActivationWindow = std::chrono::milliseconds{ 1500 };
+
+    // Activations that never became a pickup -- a locked chest, a door, a lever
+    // -- expire on their own. Small on purpose: the list is walked on every
+    // grant, and anything the window has outlived is dead weight.
+    constexpr std::size_t kMaxActivated = 32;
+
+    void NoteActivation(RE::FormID a_baseObj)
+    {
+        const auto       now = std::chrono::steady_clock::now();
+        std::scoped_lock lock{ g_activatedLock };
+
+        std::erase_if(g_activated,
+            [&](const Activated& a_e) { return now - a_e.at >= kActivationWindow; });
+
+        if (g_activated.size() >= kMaxActivated) {
+            g_activated.erase(g_activated.begin());
+        }
+        g_activated.push_back({ a_baseObj, now });
+    }
+
+    bool TakeActivation(RE::FormID a_baseObj)
+    {
+        const auto       now = std::chrono::steady_clock::now();
+        std::scoped_lock lock{ g_activatedLock };
+
+        for (auto it = g_activated.begin(); it != g_activated.end(); ++it) {
+            if (it->baseObj == a_baseObj && now - it->at < kActivationWindow) {
+                g_activated.erase(it);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Every activation the player performs, whatever it turns out to mean. A
+    // door, a lever and a locked chest all land here and all expire unused; the
+    // filtering that matters happens on the grant side, where the base object is
+    // known to be one this path would otherwise have rolled.
+    class ActivateSink : public RE::BSTEventSink<RE::TESActivateEvent>
+    {
+    public:
+        static ActivateSink* GetSingleton()
+        {
+            static ActivateSink singleton;
+            return &singleton;
+        }
+
+        RE::BSEventNotifyControl ProcessEvent(const RE::TESActivateEvent* a_event,
+            RE::BSTEventSource<RE::TESActivateEvent>*) override
+        {
+            if (!a_event || !g_enabled.load()) {
+                return RE::BSEventNotifyControl::kContinue;
+            }
+
+            // Only the player's own activations. An NPC opening a door raises
+            // this too, and nothing an NPC activates can become a grant into the
+            // player's inventory.
+            auto* actor = a_event->actionRef.get();
+            constexpr RE::FormID kPlayer = 0x14;
+            if (!actor || actor->GetFormID() != kPlayer) {
+                return RE::BSEventNotifyControl::kContinue;
+            }
+
+            auto* target = a_event->objectActivated.get();
+            auto* base   = target ? target->GetBaseObject() : nullptr;
+            if (!base) {
+                return RE::BSEventNotifyControl::kContinue;
+            }
+
+            NoteActivation(base->GetFormID());
+            return RE::BSEventNotifyControl::kContinue;
+        }
+    };
+
     class GrantSink : public RE::BSTEventSink<RE::TESContainerChangedEvent>
     {
     public:
@@ -270,6 +480,16 @@ namespace
                 return RE::BSEventNotifyControl::kContinue;
             }
 
+            // ★OUR OWN HAND, FIRST AND BEFORE THE COUNTERS. Apply::ToNewInstance
+            // drops the item and picks it straight back up, and the pickup half
+            // of that arrives here looking exactly like a fresh grant. Left in,
+            // every roll fed one phantom grant back into this sink -- which is
+            // what the entry guards were quietly refusing, one for one, for as
+            // long as this file has existed.
+            if (Apply::InSurgery()) {
+                return RE::BSEventNotifyControl::kContinue;
+            }
+
             // ★THE WHOLE FILTER, AND EVERY CLAUSE EARNS ITS PLACE.
             //
             //   newContainer is the player   -- this path is only about rewards
@@ -278,17 +498,18 @@ namespace
             //                                   corpse or chest; buying reports
             //                                   the merchant. Both are already
             //                                   served by Distribute.
-            //   no source reference          -- picking an item up off the
-            //                                   ground ALSO reports no old
-            //                                   container, and is distinguished
-            //                                   only by carrying the world
-            //                                   reference it came from.
             //
-            // What is left is "a script put this in your inventory", which is
-            // what a quest reward is.
+            // ★AND NOT `reference`, WHICH LOOKS LIKE IT BELONGS HERE AND DOES
+            // NOT. It reads as "the world reference this came from", so it was
+            // used to exclude ground pickups -- but on a pickup it arrives
+            // EMPTY, so the clause never refused anything and every item taken
+            // off the ground was rolled as a reward. QuestReward.h has the
+            // evidence. The ledger below is what actually does that job.
+            //
+            // What is left is "something put this in your inventory out of
+            // nothing", which is a quest reward and also, still, a pickup.
             constexpr RE::FormID kPlayer = 0x14;
-            if (a_event->newContainer != kPlayer || a_event->oldContainer != 0 ||
-                a_event->reference) {
+            if (a_event->newContainer != kPlayer || a_event->oldContainer != 0) {
                 return RE::BSEventNotifyControl::kContinue;
             }
             if (a_event->itemCount <= 0 || a_event->itemCount > kMaxRewardCount) {
@@ -308,6 +529,22 @@ namespace
             {
                 std::scoped_lock lock{ g_statsLock };
                 ++g_stats.granted;
+            }
+
+            // ★THE PLAYER PICKED THIS UP, AND THAT IS NOT A REWARD. Loose gear
+            // lying in the world has already been through Distribute, which
+            // rolled it -- or deliberately did not -- when the cell loaded. A
+            // second roll on the way into the pocket is this path reaching past
+            // its own boundary, and it is what the player saw.
+            //
+            // ★ASKED BEFORE THE GEAR TEST, so the ledger entry is consumed by
+            // the pickup that created it whatever the item turned out to be. An
+            // activation left behind by a picked-up potion would otherwise sit
+            // there waiting to excuse the next real grant of one.
+            if (TakeActivation(a_event->baseObj)) {
+                std::scoped_lock lock{ g_statsLock };
+                ++g_stats.fromWorld;
+                return RE::BSEventNotifyControl::kContinue;
             }
 
             if (!form->Is(RE::FormType::Weapon) && !form->Is(RE::FormType::Armor)) {
@@ -381,6 +618,11 @@ void QuestReward::Install()
         logger::error("quest rewards: no script event source holder; rewards stay vanilla");
         return;
     }
+    // ★THE ACTIVATE SINK FIRST, and the order is not cosmetic. Both sinks are
+    // live from the moment they are added; registering the one that RECOGNISES a
+    // pickup after the one that ACTS on it leaves a window, however small, where
+    // a grant can arrive with no ledger behind it.
+    holder->AddEventSink<RE::TESActivateEvent>(ActivateSink::GetSingleton());
     holder->AddEventSink<RE::TESContainerChangedEvent>(GrantSink::GetSingleton());
 
     logger::info("quest rewards: grant sink installed (currently {}), "
@@ -414,6 +656,12 @@ void QuestReward::Forget()
         std::scoped_lock lock{ g_pendingLock };
         dropped = g_pending.size();
         g_pending.clear();
+    }
+    {
+        // The ledger goes with it, for the same reason: an activation belongs to
+        // the world it happened in, and the save being opened did not make it.
+        std::scoped_lock lock{ g_activatedLock };
+        g_activated.clear();
     }
     if (dropped) {
         logger::info("quest rewards: dropped {} outstanding item(s) -- the world they belonged "
@@ -449,20 +697,27 @@ void QuestReward::LogStats()
     logger::info("    affixed        {}", stats.affixed);
     logger::info("    no affix fits  {}   (nothing in the table matches the item's slots)",
         stats.rolledWhite);
+    logger::info("    from world     {}   (the player picked it up off the ground)",
+        stats.fromWorld);
     logger::info("    not gear       {}", stats.notGear);
     logger::info("    stacked        {}   (more than one at a time)", stats.stacked);
     logger::info("    from crafting  {}", stats.fromCrafting);
     logger::info("    not generic    {}   (in no leveled list -- a unique)", stats.notGeneric);
-    logger::info("    ineligible     {}   (quest object, favourited, or gone)",
-        stats.ineligible);
+    logger::info("    quest object   {}   (a quest owns an instance of it)", stats.questObject);
+    logger::info("    favourited     {}   (an instance carries a hotkey)", stats.favourited);
+    logger::info("    enchanted      {}   (the drop drew an already-enchanted instance)",
+        stats.alreadyEnchanted);
+    logger::info("    gone           {}   (sold or dropped before it settled)", stats.gone);
+    logger::info("    ineligible     {}   (no slot this system affixes)", stats.ineligible);
     if (stats.attachFailed) {
         logger::warn("    ATTACH FAILED  {}", stats.attachFailed);
     }
     logger::info("  still settling:  {}", outstanding);
 
-    const auto tallied = stats.affixed + stats.rolledWhite + stats.notGear + stats.stacked +
-        stats.fromCrafting + stats.notGeneric + stats.ineligible + stats.attachFailed +
-        outstanding;
+    const auto tallied = stats.affixed + stats.rolledWhite + stats.fromWorld + stats.notGear +
+        stats.stacked + stats.fromCrafting + stats.notGeneric + stats.questObject +
+        stats.favourited + stats.alreadyEnchanted + stats.gone + stats.ineligible +
+        stats.attachFailed + outstanding;
     if (tallied != stats.granted) {
         logger::warn("  ACCOUNTING GAP: {} granted but {} accounted for", stats.granted, tallied);
     }
