@@ -67,7 +67,7 @@ namespace Persist
     // container move -- neither can name one sword among three.
     //
     // The band is roll::Band as an integer: 0 white, 1 blue, 2 yellow,
-    // 3 purple, 4 orange. Zero is never stored; it means "no opinion".
+    // 3 purple, 4 orange, 5 red. Zero is never stored; it means "no opinion".
     void NoteEnchTier(RE::FormID a_enchantment, std::uint8_t a_band);
 
     // 0 when nothing was recorded -- an unrolled item, a vanilla enchantment,

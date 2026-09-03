@@ -99,31 +99,56 @@ namespace roll
         std::vector<Affix> _affixes;
     };
 
+    // ------------------------------------------------------------- the limits
+    // The most affixes one item can carry, and the tier that many affixes at
+    // Tier III add up to. Everything sized by "how many affixes" -- the count
+    // curve, the harness's histogram -- reads these rather than repeating the
+    // number, so the fifth affix was a change here and not a hunt.
+    inline constexpr int kMaxAffixes = 5;
+    inline constexpr int kMaxAffixPoints = 3;
+    inline constexpr int kMaxTier = kMaxAffixes * kMaxAffixPoints;  // 15
+
     // ------------------------------------------------------------- the curves
     // Everything tunable lives here so the harness can sweep it without a
     // rebuild of anything else.
     struct Curve
     {
-        int                  level{ 0 };
-        std::array<int, 5>   countWeights{ 0, 0, 0, 0, 0 };  // 0..4 affixes
-        std::array<int, 3>   tierWeights{ 0, 0, 0 };         // tier I..III
+        int                                level{ 0 };
+        std::array<int, kMaxAffixes + 1>   countWeights{};       // 0..5 affixes
+        std::array<int, kMaxAffixPoints>   tierWeights{};        // tier I..III
     };
 
     struct Tuning
     {
         // Bands are interpolated between, so the curve is smooth rather than
         // stepped. Levels must be ascending.
+        //
+        // The sixth count weight is the FIFTH AFFIX. It is zero everywhere below
+        // the level-40 band on purpose: interpolation would otherwise leak a
+        // sliver of it into the twenties, and fifthAffixMinLevel below is the
+        // hard floor that makes sure none of that sliver ever lands.
         std::vector<Curve> bands{
-            { 1, { 55, 30, 12, 3, 0 }, { 80, 18, 2 } },
-            { 12, { 30, 33, 24, 11, 2 }, { 55, 35, 10 } },
-            { 25, { 15, 27, 30, 20, 8 }, { 32, 43, 25 } },
-            { 40, { 6, 18, 30, 28, 18 }, { 18, 40, 42 } },
+            { 1, { 55, 30, 12, 3, 0, 0 }, { 80, 18, 2 } },
+            { 12, { 30, 33, 24, 11, 2, 0 }, { 55, 35, 10 } },
+            { 25, { 15, 27, 30, 20, 8, 0 }, { 32, 43, 25 } },
+            { 40, { 6, 16, 28, 26, 16, 8 }, { 18, 40, 42 } },
         };
+
+        // The item level below which a fifth affix cannot roll, whatever the
+        // curve says. Red -- the five-star band -- needs thirteen points, and
+        // thirteen points need five affixes, so this is also the floor under
+        // red: nothing below it can come out red, however lucky the tiers.
+        //
+        // A FLOOR AND NOT A BAND, because the curve is interpolated and a band
+        // at 35 reading zero would still let level 36 roll a fraction of the
+        // level-40 weight. That is the smooth ramp the curve is for; this is
+        // the promise that the ramp starts here and not a level sooner.
+        int fifthAffixMinLevel{ 35 };
 
         // NPCs roll the same curve as the player (your decision), but the hook
         // is here so an NPC-only ceiling is a one-line change rather than a
-        // refactor.
-        int npcMaxTier{ 12 };
+        // refactor. At kMaxTier it is no ceiling at all.
+        int npcMaxTier{ kMaxTier };
     };
 
     // ------------------------------------------------------------- the result
@@ -140,7 +165,7 @@ namespace roll
     struct RolledItem
     {
         std::vector<RolledAffix> affixes;
-        int                      tier{ 0 };  // sum of points, 0..12
+        int                      tier{ 0 };  // sum of points, 0..kMaxTier
 
         [[nodiscard]] std::string Name(std::string_view a_baseName) const;
     };
@@ -176,22 +201,30 @@ namespace roll
     [[nodiscard]] RolledItem Roll(const AffixTable& a_table, const RollContext& a_ctx,
         const Tuning& a_tuning, Rng& a_rng);
 
-    // 0 white, 1-3 blue, 4-6 yellow, 7-9 purple, 10-12 orange.
+    // 0 white, 1-3 blue, 4-6 yellow, 7-9 purple, 10-12 orange, 13-15 red.
+    //
+    // Red is reachable only with all five affixes on the item -- four at Tier
+    // III stop at twelve -- and five affixes only roll at or above
+    // Tuning::fifthAffixMinLevel. Both gates fall out of the arithmetic rather
+    // than being checked here, which is why BandOf still takes just the tier.
     enum class Band
     {
         kWhite,
         kBlue,
         kYellow,
         kPurple,
-        kOrange
+        kOrange,
+        kRed
     };
+
+    inline constexpr int kBandCount = static_cast<int>(Band::kRed) + 1;
 
     [[nodiscard]] Band        BandOf(int a_tier) noexcept;
     [[nodiscard]] const char* BandName(Band a_band) noexcept;
 
     // ------------------------------------------------------------- tier mark
     // The glyph repeated once per band at the end of a rolled item's name: one
-    // for blue, four for orange. Defaults to U+25C6 BLACK DIAMOND.
+    // for blue, five for red. Defaults to U+25C6 BLACK DIAMOND.
     //
     // HANDED IN, NOT BAKED IN. Which glyph actually draws depends on the
     // player's fonts and menu replacers, which is not something this file can
@@ -206,7 +239,7 @@ namespace roll
     [[nodiscard]] std::string_view TierMark() noexcept;
 
     // The marker for one band, ready to draw: the mark repeated once per band,
-    // so blue gets one and orange four. Empty for a white item, and empty when
+    // so blue gets one and red five. Empty for a white item, and empty when
     // the mark itself is empty.
     //
     // TAKES A BAND, NOT A TIER, and that is the useful shape rather than an

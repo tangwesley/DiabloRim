@@ -68,7 +68,7 @@ namespace Config
     [[nodiscard]] bool VerboseSurvey();
 
     // The glyph repeated once per band at the end of a rolled item's name --
-    // one for blue, four for orange. Empty means no marker at all.
+    // one for blue, five for red. Empty means no marker at all.
     //
     // ★THE VALUE IS TAKEN VERBATIM, whatever it is: a diamond, a star, an
     // asterisk, a word. Which glyphs actually draw depends on the player's

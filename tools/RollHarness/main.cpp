@@ -9,7 +9,7 @@
 //  You change a number, look at the distribution, and change it again -- and
 //  doing that inside Skyrim costs a launch and a dungeon per attempt.
 //
-//    RollHarness [csv] [--samples N] [--seed N] [--levels 1,12,25,40] [--npc]
+//    RollHarness [csv] [--samples N] [--seed N] [--levels 1,12,25,34,35,40] [--npc]
 // =============================================================================
 
 #include "roll/Roll.h"
@@ -28,7 +28,9 @@ namespace
         std::string      csv{ "data/DiabloLoot_affixes.csv" };
         int              samples{ 100000 };
         unsigned         seed{ 20260826 };
-        std::vector<int> levels{ 1, 12, 25, 40 };
+        // 34 and 35 straddle the fifth-affix floor, so the default run shows
+        // red switching on -- and shows it absent one level below.
+        std::vector<int> levels{ 1, 12, 25, 34, 35, 40 };
         bool             forNpc{ false };
     };
 
@@ -131,7 +133,7 @@ int main(int argc, char** argv)
     for (const int level : options.levels) {
         roll::Rng rng{ options.seed + static_cast<unsigned>(level) };
 
-        std::array<int, 13>        tierCounts{};
+        std::array<int, roll::kMaxTier + 1> tierCounts{};
         std::map<std::string, int> affixCounts;
         long long                  totalAffixes = 0;
 
@@ -149,7 +151,7 @@ int main(int argc, char** argv)
             const roll::RollContext ctx{ level, mask, options.forNpc };
             const auto              rolled = roll::Roll(table, ctx, tuning, rng);
 
-            tierCounts[static_cast<std::size_t>(std::clamp(rolled.tier, 0, 12))]++;
+            tierCounts[static_cast<std::size_t>(std::clamp(rolled.tier, 0, roll::kMaxTier))]++;
             totalAffixes += static_cast<long long>(rolled.affixes.size());
             for (const auto& affix : rolled.affixes) {
                 affixCounts[affix.affix->name]++;
@@ -163,8 +165,8 @@ int main(int argc, char** argv)
             peak = std::max(peak, count);
         }
 
-        std::array<int, 5> bands{};
-        for (int tier = 0; tier <= 12; ++tier) {
+        std::array<int, roll::kBandCount> bands{};
+        for (int tier = 0; tier <= roll::kMaxTier; ++tier) {
             const int count = tierCounts[static_cast<std::size_t>(tier)];
             bands[static_cast<std::size_t>(roll::BandOf(tier))] += count;
             std::printf("  tier %2d %-7s %6d %5.1f%%  ", tier,
@@ -175,7 +177,7 @@ int main(int argc, char** argv)
         }
 
         std::printf("  ---- colour bands ----\n");
-        for (int b = 0; b < 5; ++b) {
+        for (int b = 0; b < roll::kBandCount; ++b) {
             std::printf("    %-7s %6d  %5.1f%%\n", roll::BandName(static_cast<roll::Band>(b)),
                 bands[static_cast<std::size_t>(b)], 100.0 * bands[static_cast<std::size_t>(b)] / options.samples);
         }
