@@ -25,11 +25,23 @@ namespace roll
     // ---------------------------------------------------------------- slots
     // A bit per place an affix can live. An item presents the mask it occupies
     // and an affix presents the mask it allows; they must intersect.
+    //
+    // Weapons carry a TYPE bit beside the generic one, the way armour carries
+    // a piece bit beside kArmor: a greatsword presents kWeapon | kTwoHanded. An
+    // affix that says WEAPON lands on any of them; one that says TWOHANDED
+    // lands only there. That is how a skill bonus stays on the weapon whose
+    // skill it is -- a two-handed weapon can never carry a One-Handed affix,
+    // because no row that means One-Handed carries the kTwoHanded bit.
+    //
+    // Staves have a bit of their own. No combat skill governs them, but they
+    // are held in one hand beside a spell, which is exactly where a One-Handed
+    // or spell-cost bonus belongs -- so those rows name STAFF and the
+    // elemental on-hit rows, which say WEAPON, reach them as before.
     enum Slot : std::uint32_t
     {
         kNone = 0,
-        kWeapon = 1u << 0,
-        kArmor = 1u << 1,  // any armor piece, including shields
+        kWeapon = 1u << 0,  // any weapon, whatever its type
+        kArmor = 1u << 1,   // any armor piece, including shields
         kShield = 1u << 2,
         kHead = 1u << 3,
         kBody = 1u << 4,
@@ -37,7 +49,15 @@ namespace roll
         kFeet = 1u << 6,
         kRing = 1u << 7,
         kAmulet = 1u << 8,
+        kOneHanded = 1u << 9,   // sword, dagger, axe, mace -- the One-Handed skill
+        kTwoHanded = 1u << 10,  // greatsword, battleaxe, warhammer -- Two-Handed
+        kBow = 1u << 11,        // bow and crossbow -- Archery
+        kStaff = 1u << 12,      // staff -- no skill, one hand, a spell in the other
     };
+
+    // The typed weapon bits together, so "does this row name a weapon type"
+    // is one test rather than four.
+    inline constexpr std::uint32_t kWeaponTypes = kOneHanded | kTwoHanded | kBow | kStaff;
 
     [[nodiscard]] std::uint32_t ParseSlots(std::string_view a_text);
     [[nodiscard]] std::string   SlotsToString(std::uint32_t a_slots);
@@ -92,6 +112,7 @@ namespace roll
         bool Merge(std::string_view a_csv, std::vector<std::string>& a_errors);
 
         [[nodiscard]] const std::vector<Affix>& Affixes() const noexcept { return _affixes; }
+        [[nodiscard]] std::vector<Affix>&       Affixes() noexcept { return _affixes; }
         [[nodiscard]] std::size_t               TierRowCount() const noexcept;
         [[nodiscard]] bool                      Empty() const noexcept { return _affixes.empty(); }
 

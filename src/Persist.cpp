@@ -34,6 +34,10 @@ namespace
     // the enchantment's shape, which still works for everything they rolled.
     constexpr std::uint32_t kAffixEnchs = 'AFFX';
 
+    // The faction restock day a merchant chest was last rolled at. See the
+    // header; one FormID and one day per entry.
+    constexpr std::uint32_t kVendorDays = 'VDAY';
+
     // ★Bump this whenever the LAYOUT changes, never for content changes. The
     // loader refuses versions it does not know rather than guessing, so an old
     // build meeting a new save skips the record and re-rolls -- annoying, and
@@ -57,6 +61,9 @@ namespace
     // map is -- attach, release, merge -- and read only when the enchanting
     // table opens, so it has no traffic of its own worth a lock of its own.
     std::unordered_set<RE::FormID>                 g_affixEnch;
+
+    // Under g_tierLock as well: written once per barter, read once per barter.
+    std::unordered_map<RE::FormID, std::uint32_t>  g_vendorDay;
 
     void SaveRolledActors(SKSE::SerializationInterface* a_intfc)
     {
@@ -139,6 +146,73 @@ namespace
         logger::info("save: wrote {} affix enchantment(s)", count);
     }
 
+    void SaveVendorDays(SKSE::SerializationInterface* a_intfc)
+    {
+        std::scoped_lock lock{ g_tierLock };
+
+        if (!a_intfc->OpenRecord(kVendorDays, kVersion)) {
+            logger::error("save: could not open the vendor-day record; every vendor chest "
+                          "will re-roll on the next barter after loading");
+            return;
+        }
+
+        const auto count = static_cast<std::uint32_t>(g_vendorDay.size());
+        if (!a_intfc->WriteRecordData(count)) {
+            logger::error("save: failed writing the vendor-day count");
+            return;
+        }
+
+        for (const auto& [formID, day] : g_vendorDay) {
+            if (!a_intfc->WriteRecordData(formID) || !a_intfc->WriteRecordData(day)) {
+                logger::error("save: failed writing a vendor day; the record is now short "
+                              "and will be rejected on load");
+                return;
+            }
+        }
+
+        logger::info("save: wrote {} vendor day(s)", count);
+    }
+
+    void LoadVendorDays(SKSE::SerializationInterface* a_intfc, std::uint32_t a_version)
+    {
+        if (a_version != kVersion) {
+            logger::warn("load: vendor-day record is version {}, this build understands {}. "
+                         "Skipping it -- vendor chests will re-roll on the next barter.",
+                a_version, kVersion);
+            return;
+        }
+
+        std::uint32_t count = 0;
+        if (!a_intfc->ReadRecordData(count)) {
+            logger::error("load: could not read the vendor-day count");
+            return;
+        }
+
+        std::size_t restored = 0;
+        std::size_t dropped = 0;
+
+        std::scoped_lock lock{ g_tierLock };
+        for (std::uint32_t i = 0; i < count; ++i) {
+            RE::FormID    oldID = 0;
+            std::uint32_t day = 0;
+            if (!a_intfc->ReadRecordData(oldID) || !a_intfc->ReadRecordData(day)) {
+                logger::error("load: vendor-day record ended after {} of {} entries", i, count);
+                break;
+            }
+
+            RE::FormID newID = 0;
+            if (!a_intfc->ResolveFormID(oldID, newID)) {
+                ++dropped;
+                continue;
+            }
+            g_vendorDay[newID] = day;
+            ++restored;
+        }
+
+        logger::info("load: restored {} vendor day(s){}", restored,
+            dropped ? std::format(", dropped {} that no longer resolve", dropped) : "");
+    }
+
     void SaveCallback(SKSE::SerializationInterface* a_intfc)
     {
         // One record each, written in turn. Kept as separate calls rather than
@@ -147,6 +221,7 @@ namespace
         SaveRolledActors(a_intfc);
         SaveEnchTiers(a_intfc);
         SaveAffixEnchs(a_intfc);
+        SaveVendorDays(a_intfc);
     }
 
     // One kEnchTiers record. Split out so the dispatch in LoadCallback stays a
@@ -265,6 +340,10 @@ namespace
                 LoadAffixEnchs(a_intfc, version);
                 continue;
             }
+            if (type == kVendorDays) {
+                LoadVendorDays(a_intfc, version);
+                continue;
+            }
             if (type != kRolledActors) {
                 logger::warn("load: skipping unknown record type {:08X}", type);
                 continue;
@@ -329,6 +408,7 @@ namespace
             hadAffix = g_affixEnch.size();
             g_enchTier.clear();
             g_affixEnch.clear();
+            g_vendorDay.clear();
         }
 
         std::scoped_lock lock{ g_lock };
@@ -403,6 +483,7 @@ void Persist::Clear()
     std::scoped_lock tierLock{ g_tierLock };
     g_enchTier.clear();
     g_affixEnch.clear();
+    g_vendorDay.clear();
 }
 
 void Persist::NoteEnchTier(RE::FormID a_enchantment, std::uint8_t a_band)
@@ -460,6 +541,28 @@ void Persist::ForgetAffixEnch(RE::FormID a_enchantment)
 {
     std::scoped_lock lock{ g_tierLock };
     g_affixEnch.erase(a_enchantment);
+}
+
+void Persist::NoteVendorDay(RE::FormID a_chest, std::uint32_t a_day)
+{
+    if (a_chest == 0) {
+        return;
+    }
+    std::scoped_lock lock{ g_tierLock };
+    g_vendorDay[a_chest] = a_day;
+}
+
+std::uint32_t Persist::VendorDay(RE::FormID a_chest)
+{
+    std::scoped_lock lock{ g_tierLock };
+    const auto       it = g_vendorDay.find(a_chest);
+    return it == g_vendorDay.end() ? 0u : it->second;
+}
+
+std::size_t Persist::VendorDayCount()
+{
+    std::scoped_lock lock{ g_tierLock };
+    return g_vendorDay.size();
 }
 
 std::size_t Persist::AffixEnchCount()

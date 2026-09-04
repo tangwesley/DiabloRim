@@ -39,6 +39,11 @@ namespace
     // means somebody's loot is quietly incomplete.
     constexpr std::size_t kMaxItemsPerActor = 12;
 
+    // A merchant chest is the one inventory the player reads top to bottom, so
+    // it gets a cap sized for a shop rather than a bandit. Still a cap: a
+    // modded vendor with a thousand rows must not stall the barter menu.
+    constexpr std::size_t kMaxItemsPerVendor = 64;
+
     // Per-thread RNG. The roller is deterministic given its generator, and
     // sharing one across the task queue would make results depend on scheduling
     // -- reproducible bug reports matter more than a few bytes.
@@ -50,7 +55,7 @@ namespace
 
     // Defined below, beside the level policy each one applies.
     void RollActor(RE::Actor* a_actor, bool a_force);
-    void RollContainer(RE::TESObjectREFR* a_refr, bool a_force);
+    void RollContainer(RE::TESObjectREFR* a_refr, bool a_force, bool a_stock, std::size_t a_cap);
 
     struct Candidate
     {
@@ -64,7 +69,7 @@ namespace
     // reading. Unequipped items may have none, and those are counted rather than
     // given one; see the note at the skip below.
     std::vector<Candidate> AffixableItems(RE::TESObjectREFR* a_refr, bool& a_hadInventory,
-        std::size_t& a_noExtraList)
+        std::size_t& a_noExtraList, std::size_t a_cap)
     {
         std::vector<Candidate> found;
 
@@ -129,9 +134,9 @@ namespace
             }
 
             found.push_back({ entry->object, target });
-            if (found.size() >= kMaxItemsPerActor) {
+            if (found.size() >= a_cap) {
                 logger::warn("distribute: {:08X} hit the {}-item cap; the rest is unaffixed",
-                    a_refr->GetFormID(), kMaxItemsPerActor);
+                    a_refr->GetFormID(), a_cap);
                 return found;
             }
         }
@@ -139,7 +144,8 @@ namespace
         return found;
     }
 
-    void RollRef(RE::TESObjectREFR* a_refr, int a_itemLevel, bool a_forNpc, bool a_force)
+    void RollRef(RE::TESObjectREFR* a_refr, int a_itemLevel, bool a_forNpc, bool a_force,
+        std::size_t a_cap = kMaxItemsPerActor)
     {
         if (!a_refr || !g_table || g_table->Empty()) {
             return;
@@ -176,7 +182,7 @@ namespace
         // is DEFERRED, not consumed.
         bool        hadInventory = false;
         std::size_t noExtraList = 0;
-        const auto  gear = AffixableItems(a_refr, hadInventory, noExtraList);
+        const auto  gear = AffixableItems(a_refr, hadInventory, noExtraList, a_cap);
         if (gear.empty()) {
             std::scoped_lock lock{ g_statsLock };
             ++g_stats.deferredNoGear;
@@ -538,7 +544,11 @@ namespace
     // which is what makes a Nordic ruin's loot match the ruin rather than the
     // player who wandered in. The same level feeds the bonus resolutions, so the
     // extra loot belongs to the dungeon on exactly the terms its own loot does.
-    void RollContainer(RE::TESObjectREFR* a_refr, bool a_force)
+    // a_stock: whether the loot multiplier applies. Off for a merchant chest --
+    // a shop restocked three times over is a shop giving things away, and the
+    // multiplier is about dungeons. a_cap: how many items the affix pass may
+    // touch.
+    void RollContainer(RE::TESObjectREFR* a_refr, bool a_force, bool a_stock, std::size_t a_cap)
     {
         if (!a_refr) {
             return;
@@ -567,7 +577,7 @@ namespace
         // Stocked BEFORE the affix pass, so the bonus items are in the inventory
         // when it walks them. The other order gives the player a fuller chest of
         // entirely plain gear.
-        const auto added = StockContainer(a_refr, level);
+        const auto added = a_stock ? StockContainer(a_refr, level) : 0;
         if (added) {
             std::scoped_lock lock{ g_statsLock };
             ++g_stats.containersStocked;
@@ -577,7 +587,7 @@ namespace
         // Forced: the claim above already decided this container gets rolled,
         // and RollRef must not re-ask a question that is now answered "yes".
         const auto before = g_stats.actorsRolled;
-        RollRef(a_refr, level, false, true);
+        RollRef(a_refr, level, false, true, a_cap);
         if (g_stats.actorsRolled != before) {
             std::scoped_lock lock{ g_statsLock };
             ++g_stats.containersRolled;
@@ -611,6 +621,10 @@ namespace
             if (!a_event || !a_event->opening || !g_enabled.load()) {
                 return RE::BSEventNotifyControl::kContinue;
             }
+            if (a_event->menuName == RE::BarterMenu::MENU_NAME) {
+                RollVendor();
+                return RE::BSEventNotifyControl::kContinue;
+            }
             if (a_event->menuName != RE::ContainerMenu::MENU_NAME) {
                 return RE::BSEventNotifyControl::kContinue;
             }
@@ -625,10 +639,64 @@ namespace
                     std::scoped_lock lock{ g_statsLock };
                     ++g_stats.containersOpened;
                 }
-                RollContainer(ref.get(), false);
+                RollContainer(ref.get(), false, true, kMaxItemsPerActor);
             }
 
             return RE::BSEventNotifyControl::kContinue;
+        }
+
+        // ★A VENDOR'S STOCK LIVES IN A CHEST THE PLAYER NEVER OPENS. The
+        // barter menu reads from the merchant container hung off the vendor's
+        // faction, in a cell nobody visits, so the container path above never
+        // sees it. This reaches in by that route on every barter and rolls the
+        // chest the same way -- minus the loot multiplier, and with a cap
+        // sized for a shop.
+        //
+        // ★ROLLED AGAIN AFTER EVERY RESTOCK, and the restock is read from the
+        // faction rather than guessed from a timer. The engine refills the
+        // chest on its own schedule -- two days for most vendors -- and stamps
+        // the day on the faction when it does. No reset event announces it,
+        // so the rolled-once mark alone would leave every restock plain. The
+        // day the chest was last rolled at is kept in the co-save beside the
+        // mark; a different day now means fresh stock, and the chest is rolled
+        // as if for the first time. Items that already carry an enchantment
+        // are skipped by the affix pass, so a same-day repeat costs nothing.
+        static void RollVendor()
+        {
+            if (!Config::VendorStockEnabled()) {
+                return;
+            }
+            const auto handle = RE::BarterMenu::GetTargetRefHandle();
+            const auto ref = RE::TESObjectREFR::LookupByHandle(handle);
+            auto*      vendor = ref ? ref->As<RE::Actor>() : nullptr;
+            if (!vendor) {
+                return;
+            }
+            auto* faction = vendor->GetVendorFaction();
+            auto* chest = faction ? faction->vendorData.merchantContainer : nullptr;
+            if (!chest) {
+                // A vendor selling from their own pockets. Those were rolled
+                // when the actor loaded, like any other NPC's gear.
+                return;
+            }
+
+            const auto chestID = chest->GetFormID();
+            const auto day = faction->vendorData.lastDayReset;
+            if (Persist::WasRolled(chestID) && Persist::VendorDay(chestID) == day) {
+                std::scoped_lock lock{ g_statsLock };
+                ++g_stats.skippedAlreadyRolled;
+                return;
+            }
+
+            logger::info("distribute: vendor {:08X} ({}) restocked on day {}; rolling chest {:08X}",
+                vendor->GetFormID(), vendor->GetName(), day, chestID);
+            Persist::MarkRolled(chestID);
+            Persist::NoteVendorDay(chestID, day);
+            {
+                std::scoped_lock lock{ g_statsLock };
+                ++g_stats.containersOpened;
+            }
+            RollContainer(chest, true, false, kMaxItemsPerVendor);
         }
     };
 

@@ -28,7 +28,11 @@ namespace Apply
     // Resolves every "plugin|0xLOCALID" token in the table to a live
     // EffectSetting, once, and complains loudly about the ones that fail. Call
     // on kDataLoaded, after the table has loaded. Returns how many resolved.
-    std::size_t ResolveEffects(const roll::AffixTable& a_table);
+    //
+    // TAKES THE TABLE MUTABLE because resolving an effect can narrow where its
+    // affix rolls: a row that fortifies a weapon skill and lists WEAPON is cut
+    // down to the weapon type that skill governs. See NarrowWeaponSlots.
+    std::size_t ResolveEffects(roll::AffixTable& a_table);
 
     // Indexes every weapon and armour reachable from a leveled item list, once,
     // at kDataLoaded. Returns how many distinct base records were found.
@@ -62,6 +66,12 @@ namespace Apply
     // renumbered. The enchanting table needs that certainty: a false negative
     // there is an item the player cannot enchant.
     [[nodiscard]] bool IsAffixEffect(const RE::EffectSetting* a_effect);
+
+    // Whether this effect belongs on the WIELDER of a weapon rather than on
+    // whatever the weapon hits: a Fortify One-Handed, Two-Handed or Archery,
+    // or a Fortify <School> spell-cost reduction. The weapon enchantment
+    // cannot deliver any of them; Wielder does, as an ability.
+    [[nodiscard]] bool IsWielderEffect(const RE::EffectSetting* a_effect);
 
     // What an item can carry, as a roll::Slot mask. kNone means "not something
     // this system affixes".

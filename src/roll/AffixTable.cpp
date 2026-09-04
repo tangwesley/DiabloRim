@@ -82,6 +82,8 @@ namespace roll
             { "WEAPON", kWeapon }, { "ARMOR", kArmor }, { "SHIELD", kShield },
             { "HEAD", kHead }, { "BODY", kBody }, { "HANDS", kHands },
             { "FEET", kFeet }, { "RING", kRing }, { "AMULET", kAmulet },
+            { "ONEHANDED", kOneHanded }, { "TWOHANDED", kTwoHanded }, { "BOW", kBow },
+            { "STAFF", kStaff },
         };
 
         std::uint32_t mask = kNone;
@@ -101,6 +103,8 @@ namespace roll
             { kWeapon, "WEAPON" }, { kArmor, "ARMOR" }, { kShield, "SHIELD" },
             { kHead, "HEAD" }, { kBody, "BODY" }, { kHands, "HANDS" },
             { kFeet, "FEET" }, { kRing, "RING" }, { kAmulet, "AMULET" },
+            { kOneHanded, "ONEHANDED" }, { kTwoHanded, "TWOHANDED" }, { kBow, "BOW" },
+            { kStaff, "STAFF" },
         };
 
         std::string out;

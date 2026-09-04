@@ -123,4 +123,29 @@ namespace Config
     // from its 1000 and a fifteen-point red about 75 from its 3000.
     [[nodiscard]] int WeaponChargeCost();
     [[nodiscard]] int WeaponChargeCostPerPoint();
+
+    // Whether a weapon-skill affix on a WORN weapon is applied to the actor
+    // holding it. Default on. Off, the affix still rolls and still reads on
+    // the card; it just does nothing, which is what a weapon enchantment can
+    // manage on its own. See Wielder.h.
+    [[nodiscard]] bool WielderBuffsEnabled();
+
+    // Whether a vendor's stock is rolled when the barter menu opens. Gated by
+    // Distribution like everything else that rolls. Default on.
+    [[nodiscard]] bool VendorStockEnabled();
+
+    // What a merchant asks for a rolled item, as a multiple of the engine's
+    // own value, by colour band. 1 for white; the defaults climb from 1.5 for
+    // blue to 10 for red. See Pricing.h.
+    [[nodiscard]] float PriceMult(roll::Band a_band);
+
+    // Whether the same multiple applies to what a merchant PAYS the player.
+    // Default off: a loot mod should not quietly change the player's income.
+    [[nodiscard]] bool SellPricesScaled();
+
+    // Whether the price hook is installed at all. Default on. The one switch
+    // here that exists for safety rather than taste: the hook patches code
+    // found by scanning, and if that ever goes wrong on some build this turns
+    // it off without a rebuild. Read at kDataLoaded, before the install.
+    [[nodiscard]] bool PriceHookEnabled();
 }

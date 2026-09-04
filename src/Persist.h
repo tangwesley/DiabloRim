@@ -113,6 +113,19 @@ namespace Persist
 
     [[nodiscard]] std::size_t AffixEnchCount();
 
+    // ---- vendor restock day, keyed by the merchant chest ---------------------
+    //
+    // The faction's lastDayReset as it stood when the chest was last rolled.
+    // A merchant chest is refilled by the engine on its own schedule with no
+    // event to say so; comparing the day now to the day recorded is how
+    // Distribute knows the stock is new. Same remap and revert as the rest.
+    void NoteVendorDay(RE::FormID a_chest, std::uint32_t a_day);
+
+    // 0 when nothing was recorded.
+    [[nodiscard]] std::uint32_t VendorDay(RE::FormID a_chest);
+
+    [[nodiscard]] std::size_t VendorDayCount();
+
     // Forgets everything. Used by the revert callback and available for a
     // console-driven reset while testing.
     void Clear();

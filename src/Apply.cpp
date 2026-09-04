@@ -114,11 +114,40 @@ namespace
     // The half of applying a roll that has nothing to do with where the result
     // is going to be hung: the created ENCH, with its never-drain signature.
     //
+    // The affix points of a roll that actually FIRE ON HIT. A wielder-side
+    // affix -- a weapon skill, a spell school's cost -- is delivered to the
+    // wielder by Wielder.cpp, not by the weapon, so it is not part of what a
+    // swing spends.
+    int OnHitPoints(const roll::RolledItem& a_rolled)
+    {
+        int points = 0;
+        for (const auto& rolled : a_rolled.affixes) {
+            if (!rolled.affix) {
+                continue;
+            }
+            const auto it = g_effects.find(rolled.affix->id);
+            const bool passive = it != g_effects.end() && Apply::IsWielderEffect(it->second);
+            if (!passive) {
+                points += std::max(rolled.points, 0);
+            }
+        }
+        return points;
+    }
+
     // What one hit costs this roll, in charge. Zero -- the default, and the
     // only answer for armour -- is "never drain".
+    //
+    // ★ONLY WHAT FIRES IS PAID FOR. A sword whose only affix is One-Handed
+    // has nothing to discharge on a hit -- the bonus lives on the wielder --
+    // so it carries no charge at all; and a sword with One-Handed beside Fire
+    // Damage pays for the fire alone.
     std::int32_t PerHitCost(const roll::RolledItem& a_rolled, RE::TESBoundObject* a_object)
     {
         if (!Config::WeaponChargeEnabled() || !IsWeapon(a_object)) {
+            return 0;
+        }
+        const int onHit = OnHitPoints(a_rolled);
+        if (onHit <= 0) {
             return 0;
         }
         // A red rolled at fifteen points drains faster than a one-point blue,
@@ -126,7 +155,7 @@ namespace
         // one. Floored at one: a cost of zero is the never-drain signature,
         // and the two must not be confusable through a zero-cost INI line.
         const auto cost = Config::WeaponChargeCost() +
-                          Config::WeaponChargeCostPerPoint() * std::max(a_rolled.tier, 0);
+                          Config::WeaponChargeCostPerPoint() * onHit;
         return static_cast<std::int32_t>(std::max(cost, 1));
     }
 
@@ -340,7 +369,99 @@ std::size_t Apply::GenericCount()
     return g_generic.size();
 }
 
-std::size_t Apply::ResolveEffects(const roll::AffixTable& a_table)
+namespace
+{
+    // The weapon types an effect's skill governs, or kNone when the effect is
+    // not a weapon-skill fortify at all.
+    //
+    // ★STAVES COUNT AS ONE-HANDED. No skill governs a staff, but it is held
+    // in one hand the way a sword is, and the decision was that a One-Handed
+    // bonus belongs on it. Two-Handed and Archery stay on their own weapons.
+    //
+    // Keyed on the ACTOR VALUE and not the affix id, so a Summermyst row or a
+    // renamed base row that reaches the same effect is narrowed the same way.
+    // The three modifier values per skill are the ones the survey found
+    // vanilla actually uses -- Fortify One-Handed keys off the power modifier,
+    // not the bare skill -- and the bare value is kept so a mod that does it
+    // the direct way is not missed.
+    std::uint32_t WeaponTypeOfSkill(const RE::EffectSetting* a_effect)
+    {
+        using AV = RE::ActorValue;
+        switch (a_effect->data.primaryAV) {
+        case AV::kOneHanded:
+        case AV::kOneHandedModifier:
+        case AV::kOneHandedPowerModifier:
+            return roll::kOneHanded | roll::kStaff;
+        case AV::kTwoHanded:
+        case AV::kTwoHandedModifier:
+        case AV::kTwoHandedPowerModifier:
+            return roll::kTwoHanded;
+        case AV::kArchery:
+        case AV::kMarksmanModifier:
+        case AV::kMarksmanPowerModifier:
+            return roll::kBow;
+        default:
+            return roll::kNone;
+        }
+    }
+
+    // A Fortify <School> -- "spells of this school cost less". Wielder-side
+    // like a weapon skill, and unlike one it names no weapon type: the CSV
+    // decides where it rolls, and the slots are left as written.
+    bool IsSchoolCostEffect(const RE::EffectSetting* a_effect)
+    {
+        using AV = RE::ActorValue;
+        switch (a_effect->data.primaryAV) {
+        case AV::kAlterationModifier:
+        case AV::kAlterationPowerModifier:
+        case AV::kConjurationModifier:
+        case AV::kConjurationPowerModifier:
+        case AV::kDestructionModifier:
+        case AV::kDestructionPowerModifier:
+        case AV::kIllusionModifier:
+        case AV::kIllusionPowerModifier:
+        case AV::kRestorationModifier:
+        case AV::kRestorationPowerModifier:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // ★A WEAPON-SKILL AFFIX ONLY ROLLS ON THE WEAPON ITS SKILL GOVERNS.
+    //
+    // The CSV can say it directly -- ONEHANDED instead of WEAPON -- but the
+    // guarantee cannot rest on every future edit of every table remembering
+    // to. So a row that lists the generic WEAPON bit and resolves to a
+    // Fortify One-Handed / Two-Handed / Archery effect has that bit swapped
+    // for the typed one here, where the effect is known. A Two-Handed row
+    // that already says TWOHANDED is left alone; a Two-Handed row that
+    // somehow says ONEHANDED is corrected and logged, because a greatsword
+    // carrying a One-Handed bonus is exactly the nonsense this exists to
+    // prevent. Apparel bits are untouched: skill fortifies belong on rings
+    // and armour, and this is about weapons only.
+    void NarrowWeaponSlots(roll::Affix& a_affix, const RE::EffectSetting* a_effect)
+    {
+        const auto typed = WeaponTypeOfSkill(a_effect);
+        if (typed == roll::kNone) {
+            return;
+        }
+        const auto before = a_affix.slots;
+        const bool onWeapons = (before & (roll::kWeapon | roll::kWeaponTypes)) != 0;
+        if (!onWeapons) {
+            return;
+        }
+        auto after = before & ~(roll::kWeapon | roll::kWeaponTypes);
+        after |= typed;
+        if (after != before) {
+            logger::info("affix \x27{}\x27 fortifies a weapon skill: weapon slots {} -> {}",
+                a_affix.id, roll::SlotsToString(before), roll::SlotsToString(after));
+            a_affix.slots = after;
+        }
+    }
+}
+
+std::size_t Apply::ResolveEffects(roll::AffixTable& a_table)
 {
     g_effects.clear();
     g_effectSet.clear();
@@ -349,7 +470,7 @@ std::size_t Apply::ResolveEffects(const roll::AffixTable& a_table)
     std::size_t missing = 0;
     std::size_t invisible = 0;
 
-    for (const auto& affix : a_table.Affixes()) {
+    for (auto& affix : a_table.Affixes()) {
         if (affix.mgef.empty()) {
             logger::warn("affix '{}' has no mgef token; it can never be applied", affix.id);
             ++missing;
@@ -397,6 +518,8 @@ std::size_t Apply::ResolveEffects(const roll::AffixTable& a_table)
             ++invisible;
         }
 
+        NarrowWeaponSlots(affix, effect);
+
         g_effects[affix.id] = effect;
         g_effectSet.insert(effect);
         ++resolved;
@@ -415,14 +538,39 @@ bool Apply::IsAffixEffect(const RE::EffectSetting* a_effect)
     return a_effect && g_effectSet.contains(a_effect);
 }
 
+bool Apply::IsWielderEffect(const RE::EffectSetting* a_effect)
+{
+    return a_effect && (WeaponTypeOfSkill(a_effect) != roll::kNone || IsSchoolCostEffect(a_effect));
+}
+
 std::uint32_t Apply::SlotsOf(RE::TESBoundObject* a_object)
 {
     if (!a_object) {
         return roll::kNone;
     }
 
-    if (IsWeapon(a_object)) {
-        return roll::kWeapon;
+    if (auto* weapon = a_object->As<RE::TESObjectWEAP>()) {
+        // The generic bit plus the type, so a Two-Handed row can single out
+        // greatswords the way a FEET row singles out boots. Staves have a
+        // type of their own; fists get the generic bit alone.
+        using Type = RE::WEAPON_TYPE;
+        switch (weapon->GetWeaponType()) {
+        case Type::kOneHandSword:
+        case Type::kOneHandDagger:
+        case Type::kOneHandAxe:
+        case Type::kOneHandMace:
+            return roll::kWeapon | roll::kOneHanded;
+        case Type::kTwoHandSword:
+        case Type::kTwoHandAxe:
+            return roll::kWeapon | roll::kTwoHanded;
+        case Type::kBow:
+        case Type::kCrossbow:
+            return roll::kWeapon | roll::kBow;
+        case Type::kStaff:
+            return roll::kWeapon | roll::kStaff;
+        default:
+            return roll::kWeapon;  // fists, and anything a mod invents
+        }
     }
 
     auto* armor = a_object->As<RE::TESObjectARMO>();

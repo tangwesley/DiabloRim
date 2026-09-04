@@ -55,6 +55,12 @@ namespace
     // item carries no enchantment, so there is nothing to charge.
     std::uint16_t g_weaponChargeAmount[roll::kBandCount] = { 0, 1000, 1500, 2000, 2500, 3000 };
 
+    bool          g_wielderBuffs = true;
+    bool  g_vendorStock = true;
+    bool  g_priceHook = true;
+    bool  g_sellPricesScaled = false;
+    float g_priceMult[roll::kBandCount] = { 1.0f, 1.5f, 2.0f, 3.0f, 5.0f, 10.0f };
+
     std::string Trim(std::string a_text)
     {
         const auto first = a_text.find_first_not_of(" \t\r\n");
@@ -97,6 +103,12 @@ namespace
 
     // Reads one band's charge amount off an INI line. Sixteen bits is the
     // engine's own ceiling on an instance's charge.
+    void ReadPriceMult(roll::Band a_band, const std::string& a_value)
+    {
+        auto& slot = g_priceMult[static_cast<int>(a_band)];
+        slot = AsFloat(a_value, slot, 0.01f, 1000.0f);
+    }
+
     void ReadChargeAmount(roll::Band a_band, const std::string& a_value)
     {
         auto& slot = g_weaponChargeAmount[static_cast<int>(a_band)];
@@ -184,6 +196,24 @@ void Config::Load()
             g_weaponChargeCost = static_cast<int>(AsFloat(value, 10.0f, 1.0f, 10000.0f));
         } else if (key == "weaponchargecostperpoint") {
             g_weaponChargeCostPerPoint = static_cast<int>(AsFloat(value, 2.0f, 0.0f, 1000.0f));
+        } else if (key == "wielderbuffs") {
+            g_wielderBuffs = AsBool(value);
+        } else if (key == "vendorstock") {
+            g_vendorStock = AsBool(value);
+        } else if (key == "sellpricesscaled") {
+            g_sellPricesScaled = AsBool(value);
+        } else if (key == "pricehook") {
+            g_priceHook = AsBool(value);
+        } else if (key == "pricemultblue") {
+            ReadPriceMult(roll::Band::kBlue, value);
+        } else if (key == "pricemultyellow") {
+            ReadPriceMult(roll::Band::kYellow, value);
+        } else if (key == "pricemultpurple") {
+            ReadPriceMult(roll::Band::kPurple, value);
+        } else if (key == "pricemultorange") {
+            ReadPriceMult(roll::Band::kOrange, value);
+        } else if (key == "pricemultred") {
+            ReadPriceMult(roll::Band::kRed, value);
         } else {
             // Named, because a silently ignored setting is how someone spends an
             // evening wondering why their edit did nothing.
@@ -263,6 +293,35 @@ bool Config::TierMarkerInName()
 bool Config::WeaponChargeEnabled()
 {
     return g_weaponCharge;
+}
+
+bool Config::WielderBuffsEnabled()
+{
+    return g_wielderBuffs;
+}
+
+bool Config::VendorStockEnabled()
+{
+    return g_vendorStock;
+}
+
+float Config::PriceMult(roll::Band a_band)
+{
+    const auto index = static_cast<int>(a_band);
+    if (index < 0 || index >= roll::kBandCount) {
+        return 1.0f;
+    }
+    return g_priceMult[index];
+}
+
+bool Config::SellPricesScaled()
+{
+    return g_sellPricesScaled;
+}
+
+bool Config::PriceHookEnabled()
+{
+    return g_priceHook;
 }
 
 std::uint16_t Config::WeaponChargeAmount(roll::Band a_band)

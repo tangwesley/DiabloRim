@@ -21,9 +21,11 @@
 #include "Enchanting.h"
 #include "GridTint.h"
 #include "Persist.h"
+#include "Pricing.h"
 #include "QuestReward.h"
 #include "Notify.h"
 #include "MgefSurvey.h"
+#include "Wielder.h"
 
 #include "roll/Roll.h"
 
@@ -161,6 +163,15 @@ namespace
             // FormID resolution and its loud validation pass belong here.
             logger::info("kDataLoaded: load order is resolvable");
             Config::Load();
+            // Patches the item-value call sites. After Config, so the INI can
+            // keep it out; before anything opens a menu, so no price is
+            // computed half-way through the patching.
+            if (Config::PriceHookEnabled()) {
+                Pricing::Install();
+            } else {
+                logger::info("pricing: hook disabled by PriceHook=0; rolled items are priced "
+                             "as plain ones");
+            }
             LoadAffixTable();
             MgefSurvey::Run(g_affixes);
             Apply::ResolveEffects(g_affixes);
@@ -191,6 +202,9 @@ namespace
             // remove the affixes already on a save's items, and those items
             // still have to be enchantable.
             Enchanting::Install();
+            // The wielder side of weapon-skill affixes. After ResolveEffects:
+            // the sink asks Apply which effects are ours.
+            Wielder::Install();
             break;
 
         // These two exist so the Phase 0 timeline is unambiguous in an appended
@@ -228,6 +242,10 @@ namespace
             // TESObjectLoadedEvent. Sweeping here is what makes an existing save
             // pick up loot retroactively rather than only as the player travels.
             SKSE::GetTaskInterface()->AddTask([]() { Distribute::SweepLoaded(); });
+            // Gear that is already worn at load fires no equip event, and the
+            // abilities it earned last session did not survive the save. Read
+            // the worn weapons back and hand the abilities out again.
+            SKSE::GetTaskInterface()->AddTask([]() { Wielder::ReconcileLoaded(); });
             break;
 
         default:
@@ -276,6 +294,12 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     // the only announcement it will ever get, and the grid draws uncoloured
     // with nothing in either log to say why.
     GridTint::Install();
+
+    // ★The trampoline is claimed HERE, where SKSE can still hand out its own
+    // reserve; the price hook that uses it waits for the INI at kDataLoaded.
+    // One stub serves every patched site -- SKSE keys stubs by destination --
+    // so the size is a formality rather than a budget.
+    SKSE::AllocTrampoline(64);
 
     // -------------------------------------------------------------------------
     // Phase 0's spike is gone, along with its hotkeys. What it established, and

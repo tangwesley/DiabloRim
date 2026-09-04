@@ -20,15 +20,15 @@ magicka_regen,Magicka Regen,Regeneration,3,3,71,100,pct,0,0,ARMOR|RING|AMULET,10
 stamina_regen,Stamina Regen,Regeneration,1,1,10,20,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A105,0,Tireless,of Endurance
 stamina_regen,Stamina Regen,Regeneration,2,2,21,35,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A105,0,Tireless,of Endurance
 stamina_regen,Stamina Regen,Regeneration,3,3,36,50,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A105,0,Tireless,of Endurance
-one_handed,One-Handed,Combat Skill,1,1,5,10,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0FF,0,Honed,of Wielding
-one_handed,One-Handed,Combat Skill,2,2,11,20,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0FF,0,Honed,of Wielding
-one_handed,One-Handed,Combat Skill,3,3,21,30,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0FF,0,Honed,of Wielding
-two_handed,Two-Handed,Combat Skill,1,1,5,10,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A106,0,Cleaving,of Smiting
-two_handed,Two-Handed,Combat Skill,2,2,11,20,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A106,0,Cleaving,of Smiting
-two_handed,Two-Handed,Combat Skill,3,3,21,30,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A106,0,Cleaving,of Smiting
-archery,Archery,Combat Skill,1,1,5,10,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0FE,0,Keen-Eyed,of Archery
-archery,Archery,Combat Skill,2,2,11,20,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0FE,0,Keen-Eyed,of Archery
-archery,Archery,Combat Skill,3,3,21,30,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0FE,0,Keen-Eyed,of Archery
+one_handed,One-Handed,Combat Skill,1,1,5,10,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0FF,0,Honed,of Wielding
+one_handed,One-Handed,Combat Skill,2,2,11,20,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0FF,0,Honed,of Wielding
+one_handed,One-Handed,Combat Skill,3,3,21,30,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0FF,0,Honed,of Wielding
+two_handed,Two-Handed,Combat Skill,1,1,5,10,pct,0,0,TWOHANDED|ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A106,0,Cleaving,of Smiting
+two_handed,Two-Handed,Combat Skill,2,2,11,20,pct,0,0,TWOHANDED|ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A106,0,Cleaving,of Smiting
+two_handed,Two-Handed,Combat Skill,3,3,21,30,pct,0,0,TWOHANDED|ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A106,0,Cleaving,of Smiting
+archery,Archery,Combat Skill,1,1,5,10,pct,0,0,BOW|ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0FE,0,Keen-Eyed,of Archery
+archery,Archery,Combat Skill,2,2,11,20,pct,0,0,BOW|ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0FE,0,Keen-Eyed,of Archery
+archery,Archery,Combat Skill,3,3,21,30,pct,0,0,BOW|ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0FE,0,Keen-Eyed,of Archery
 block,Block,Combat Skill,1,1,5,10,pct,0,0,SHIELD|ARMOR,100,1,Skyrim.esm|0x07A0F3,0,Bulwark,of Blocking
 block,Block,Combat Skill,2,2,11,20,pct,0,0,SHIELD|ARMOR,100,12,Skyrim.esm|0x07A0F3,0,Bulwark,of Blocking
 block,Block,Combat Skill,3,3,21,30,pct,0,0,SHIELD|ARMOR,100,25,Skyrim.esm|0x07A0F3,0,Bulwark,of Blocking
@@ -101,21 +101,21 @@ banish,Banish,Control,3,3,25,36,level,0,0,WEAPON,100,25,Skyrim.esm|0x0ACBB5,0,Ba
 unarmed_damage,Unarmed Damage,Unarmed,1,1,3,5,flat,0,0,HANDS|RING,100,1,Skyrim.esm|0x0424E2,0,Brawler's,of the Brawler
 unarmed_damage,Unarmed Damage,Unarmed,2,2,6,10,flat,0,0,HANDS|RING,100,12,Skyrim.esm|0x0424E2,0,Brawler's,of the Brawler
 unarmed_damage,Unarmed Damage,Unarmed,3,3,11,15,flat,0,0,HANDS|RING,100,25,Skyrim.esm|0x0424E2,0,Brawler's,of the Brawler
-alteration_cost,Alteration Cost,Magic,1,1,5,8,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0F2,0,Shifting,of Alteration
-alteration_cost,Alteration Cost,Magic,2,2,9,15,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0F2,0,Shifting,of Alteration
-alteration_cost,Alteration Cost,Magic,3,3,16,20,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0F2,0,Shifting,of Alteration
-conjuration_cost,Conjuration Cost,Magic,1,1,5,8,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0F5,0,Summoner's,of Conjuring
-conjuration_cost,Conjuration Cost,Magic,2,2,9,15,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0F5,0,Summoner's,of Conjuring
-conjuration_cost,Conjuration Cost,Magic,3,3,16,20,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0F5,0,Summoner's,of Conjuring
-destruction_cost,Destruction Cost,Magic,1,1,5,8,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0F6,0,Kindled,of Destruction
-destruction_cost,Destruction Cost,Magic,2,2,9,15,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0F6,0,Kindled,of Destruction
-destruction_cost,Destruction Cost,Magic,3,3,16,20,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0F6,0,Kindled,of Destruction
-illusion_cost,Illusion Cost,Magic,1,1,5,8,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0FA,0,Veiled,of Illusion
-illusion_cost,Illusion Cost,Magic,2,2,9,15,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0FA,0,Veiled,of Illusion
-illusion_cost,Illusion Cost,Magic,3,3,16,20,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0FA,0,Veiled,of Illusion
-restoration_cost,Restoration Cost,Magic,1,1,5,8,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A101,0,Hallowed,of Restoration
-restoration_cost,Restoration Cost,Magic,2,2,9,15,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A101,0,Hallowed,of Restoration
-restoration_cost,Restoration Cost,Magic,3,3,16,20,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A101,0,Hallowed,of Restoration
+alteration_cost,Alteration Cost,Magic,1,1,5,8,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0F2,0,Shifting,of Alteration
+alteration_cost,Alteration Cost,Magic,2,2,9,15,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0F2,0,Shifting,of Alteration
+alteration_cost,Alteration Cost,Magic,3,3,16,20,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0F2,0,Shifting,of Alteration
+conjuration_cost,Conjuration Cost,Magic,1,1,5,8,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0F5,0,Summoner's,of Conjuring
+conjuration_cost,Conjuration Cost,Magic,2,2,9,15,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0F5,0,Summoner's,of Conjuring
+conjuration_cost,Conjuration Cost,Magic,3,3,16,20,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0F5,0,Summoner's,of Conjuring
+destruction_cost,Destruction Cost,Magic,1,1,5,8,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0F6,0,Kindled,of Destruction
+destruction_cost,Destruction Cost,Magic,2,2,9,15,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0F6,0,Kindled,of Destruction
+destruction_cost,Destruction Cost,Magic,3,3,16,20,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0F6,0,Kindled,of Destruction
+illusion_cost,Illusion Cost,Magic,1,1,5,8,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0FA,0,Veiled,of Illusion
+illusion_cost,Illusion Cost,Magic,2,2,9,15,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0FA,0,Veiled,of Illusion
+illusion_cost,Illusion Cost,Magic,3,3,16,20,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0FA,0,Veiled,of Illusion
+restoration_cost,Restoration Cost,Magic,1,1,5,8,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A101,0,Hallowed,of Restoration
+restoration_cost,Restoration Cost,Magic,2,2,9,15,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A101,0,Hallowed,of Restoration
+restoration_cost,Restoration Cost,Magic,3,3,16,20,pct,0,0,ONEHANDED|STAFF|ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A101,0,Hallowed,of Restoration
 fire_resist,Fire Resist,Resistance,1,1,10,20,pct,0,0,ARMOR|SHIELD|RING|AMULET,100,1,Skyrim.esm|0x048C8B,0,Firewalker's,of Waning Fire
 fire_resist,Fire Resist,Resistance,2,2,21,35,pct,0,0,ARMOR|SHIELD|RING|AMULET,100,12,Skyrim.esm|0x048C8B,0,Firewalker's,of Waning Fire
 fire_resist,Fire Resist,Resistance,3,3,36,50,pct,0,0,ARMOR|SHIELD|RING|AMULET,100,25,Skyrim.esm|0x048C8B,0,Firewalker's,of Waning Fire
