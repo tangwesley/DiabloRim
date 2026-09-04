@@ -6,6 +6,7 @@
 
 #include "Apply.h"
 
+#include "Config.h"
 #include "Persist.h"
 
 #include <algorithm>
@@ -113,6 +114,34 @@ namespace
     // The half of applying a roll that has nothing to do with where the result
     // is going to be hung: the created ENCH, with its never-drain signature.
     //
+    // What one hit costs this roll, in charge. Zero -- the default, and the
+    // only answer for armour -- is "never drain".
+    std::int32_t PerHitCost(const roll::RolledItem& a_rolled, RE::TESBoundObject* a_object)
+    {
+        if (!Config::WeaponChargeEnabled() || !IsWeapon(a_object)) {
+            return 0;
+        }
+        // A red rolled at fifteen points drains faster than a one-point blue,
+        // the way a strong vanilla enchantment costs more per hit than a weak
+        // one. Floored at one: a cost of zero is the never-drain signature,
+        // and the two must not be confusable through a zero-cost INI line.
+        const auto cost = Config::WeaponChargeCost() +
+                          Config::WeaponChargeCostPerPoint() * std::max(a_rolled.tier, 0);
+        return static_cast<std::int32_t>(std::max(cost, 1));
+    }
+
+    // The maximum charge the instance starts with, by the band it rolled.
+    // Paired with PerHitCost: a charge with no cost is a meter that never
+    // moves, and a cost with no charge is a weapon that fires from empty --
+    // both look like bugs.
+    std::uint16_t StartingCharge(const roll::RolledItem& a_rolled, RE::TESBoundObject* a_object)
+    {
+        if (PerHitCost(a_rolled, a_object) <= 0) {
+            return 0;
+        }
+        return Config::WeaponChargeAmount(roll::BandOf(a_rolled.tier));
+    }
+
     // Split out because there are now TWO places to hang it -- an ExtraDataList
     // we were handed, and one the engine is about to make for us -- and the
     // rules about what may be enchanted at all must not be allowed to drift
@@ -181,13 +210,54 @@ namespace
             return nullptr;
         }
 
-        // Never drain. The zero is the number the engine reads and the flag is
+        // The per-hit cost. The number is what the engine reads and the flag is
         // what tells it to read the number instead of auto-calculating from the
-        // effects.
-        ench->data.costOverride = 0;
+        // effects -- and auto-calculation is not an option here even when the
+        // charge is meant to be finite, because the table rolls magnitudes far
+        // outside anything the enchanter's own formula was tuned for.
+        //
+        // Zero means never drain: charge is irrelevant to such an enchantment,
+        // it fires from empty, and that is what every affix has always been.
+        // Nonzero is the opt-in finite charge, weapons only -- armour
+        // enchantments are constant-effect and have no charge to spend.
+        //
+        // ★THE ENGINE DEDUPES IDENTICAL EFFECT SETS, so `ench` can be one an
+        // earlier roll already built -- and it keeps whatever cost that roll
+        // stamped. Two identical rolls with the setting flipped between them
+        // share one enchantment and one cost; the second roll's setting loses.
+        // Rare enough not to fight, and the alternative is a second enchantment
+        // for the same effects, which the manager exists to prevent.
+        ench->data.costOverride = PerHitCost(a_rolled, a_object);
         ench->data.flags.set(RE::EnchantmentItem::EnchantmentFlag::kCostOverride);
 
         return ench;
+    }
+
+    // Whether the manager still lists this enchantment after a release: false
+    // means the last holder let go and the form is gone. Only the POINTER is
+    // compared, never dereferenced -- when this returns false it is dangling.
+    //
+    // ★WHY THIS IS ASKED AT ALL. The manager dedupes identical effect sets, so
+    // one created enchantment can be carried by several items at once. Every
+    // holder that releases used to drop the map entries unconditionally, and
+    // the siblings kept an enchantment that the records no longer knew: the
+    // grid drew them uncoloured, and now that the enchanting table reads the
+    // affix set, they would stop being enchantable as well.
+    bool StillCreated(const RE::BGSCreatedObjectManager* a_manager,
+        const RE::EnchantmentItem* a_ench, bool a_isWeapon)
+    {
+        if (!a_manager) {
+            return false;
+        }
+        const auto& list = a_isWeapon ? a_manager->weaponEnchantments
+                                      : a_manager->armorEnchantments;
+        RE::BSSpinLockGuard guard{ a_manager->lock };
+        for (const auto& entry : list) {
+            if (entry.magicItem == a_ench) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ★A DIAGNOSTIC USED TO LIVE HERE AND IT CRASHED THE GAME. Removed, not
@@ -433,11 +503,13 @@ Apply::Applied Apply::ToItem(const roll::RolledItem& a_rolled, RE::TESBoundObjec
         return result;
     }
 
-    // ★Charge ZERO, deliberately. GetEnchantmentCharge's first branch is guarded
-    // by `charge != 0`, so zero makes it fall through: an unenchanted base draws
-    // no charge meter at all, which is the honest look for an affix that never
-    // drains. Measured: it still fires from empty.
-    a_xList->SetEnchantment(ench, 0, false);
+    // ★Charge ZERO by default, deliberately. GetEnchantmentCharge's first
+    // branch is guarded by `charge != 0`, so zero makes it fall through: an
+    // unenchanted base draws no charge meter at all, which is the honest look
+    // for an affix that never drains. Measured: it still fires from empty.
+    // With weapon charge on, this is a real number and the meter draws.
+    a_xList->SetEnchantment(ench, StartingCharge(a_rolled, a_object), false);
+    Persist::NoteAffixEnch(ench->GetFormID());
 
     result.enchantment = ench;
     // The base is always the item itself now that enchanted records are declined.
@@ -554,7 +626,8 @@ Apply::Applied Apply::ToNewInstance(const roll::RolledItem& a_rolled,
     // like something assembled by hand.
     logger::debug("apply[{:08X}]: 2 got reference {:08X}, enchanting it", id,
         dropped->GetFormID());
-    dropped->extraList.SetEnchantment(ench, 0, false);
+    dropped->extraList.SetEnchantment(ench, StartingCharge(a_rolled, a_object), false);
+    Persist::NoteAffixEnch(ench->GetFormID());
     result.name = NameInstance(a_rolled, a_object, &dropped->extraList);
 
     // ★STEP 3: BACK IN, BY THE ENGINE'S OWN PICKUP. PickUpObject moves the
@@ -607,19 +680,38 @@ void Apply::Release(RE::ExtraDataList* a_xList, bool a_isWeapon)
 
     // ★The half that RemoveByType does not do. Detaching alone leaves the
     // manager counting a reference nothing holds; the save records that, and the
-    // load throws -- measured twice, reproducibly, before this existed. The
-    // manager refcounts sharing, so this decrements and only actually destroys
-    // when the last holder lets go.
-    // Read the id BEFORE the manager is told to let go -- once the last holder
-    // releases, the form is gone and GetFormID() is a read through a dead
-    // pointer. The map entry must not outlive the enchantment either way: the
-    // engine reuses created-object ids, so a stale entry would eventually
-    // colour some unrelated item that inherited the number.
-    const auto enchID = ench->GetFormID();
+    // load throws -- measured twice, reproducibly, before this existed.
+    ReleaseCreated(ench, a_isWeapon);
+}
 
-    if (auto* manager = RE::BGSCreatedObjectManager::GetSingleton()) {
-        manager->DestroyEnchantment(ench, a_isWeapon);
+void Apply::ReleaseCreated(RE::EnchantmentItem* a_ench, bool a_isWeapon)
+{
+    if (!a_ench) {
+        return;
     }
 
+    // Read the id BEFORE the manager is told to let go -- once the last holder
+    // releases, the form is gone and GetFormID() is a read through a dead
+    // pointer.
+    const auto enchID = a_ench->GetFormID();
+
+    // The manager refcounts sharing, so this decrements and only actually
+    // destroys when the last holder lets go.
+    auto* manager = RE::BGSCreatedObjectManager::GetSingleton();
+    if (manager) {
+        manager->DestroyEnchantment(a_ench, a_isWeapon);
+    }
+
+    // ★THE RECORDS FOLLOW THE FORM, NOT THE HOLDER. While another item still
+    // carries this enchantment, its band and its ownership are still true and
+    // stay. Once nothing does, the entries must not outlive it: the engine
+    // reuses created-object ids, and a stale entry would eventually colour --
+    // or, worse, let the table strip -- some unrelated item that inherited the
+    // number.
+    if (StillCreated(manager, a_ench, a_isWeapon)) {
+        logger::debug("release: {:08X} is still carried by another item; records kept", enchID);
+        return;
+    }
     Persist::ForgetEnchTier(enchID);
+    Persist::ForgetAffixEnch(enchID);
 }

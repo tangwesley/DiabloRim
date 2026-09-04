@@ -29,6 +29,11 @@ namespace
     // the whole record unreadable and re-rolled the world.
     constexpr std::uint32_t kEnchTiers = 'ETIR';
 
+    // A THIRD, for the same reason as the second: the set of created
+    // enchantments that are ours. Old builds skip it and fall back to reading
+    // the enchantment's shape, which still works for everything they rolled.
+    constexpr std::uint32_t kAffixEnchs = 'AFFX';
+
     // ★Bump this whenever the LAYOUT changes, never for content changes. The
     // loader refuses versions it does not know rather than guessing, so an old
     // build meeting a new save skips the record and re-rolls -- annoying, and
@@ -47,6 +52,11 @@ namespace
     // the two sets are never touched together.
     std::mutex                                     g_tierLock;
     std::unordered_map<RE::FormID, std::uint8_t>   g_enchTier;
+
+    // Under g_tierLock as well. It is written at exactly the moments the tier
+    // map is -- attach, release, merge -- and read only when the enchanting
+    // table opens, so it has no traffic of its own worth a lock of its own.
+    std::unordered_set<RE::FormID>                 g_affixEnch;
 
     void SaveRolledActors(SKSE::SerializationInterface* a_intfc)
     {
@@ -102,13 +112,41 @@ namespace
         logger::info("save: wrote {} enchantment tier(s)", count);
     }
 
+    void SaveAffixEnchs(SKSE::SerializationInterface* a_intfc)
+    {
+        std::scoped_lock lock{ g_tierLock };
+
+        if (!a_intfc->OpenRecord(kAffixEnchs, kVersion)) {
+            logger::error("save: could not open the affix-enchantment record; finite-charge "
+                          "weapons in this save will not be enchantable when loaded");
+            return;
+        }
+
+        const auto count = static_cast<std::uint32_t>(g_affixEnch.size());
+        if (!a_intfc->WriteRecordData(count)) {
+            logger::error("save: failed writing the affix-enchantment count");
+            return;
+        }
+
+        for (const auto formID : g_affixEnch) {
+            if (!a_intfc->WriteRecordData(formID)) {
+                logger::error("save: failed writing an affix-enchantment id; the record is now "
+                              "short and will be rejected on load");
+                return;
+            }
+        }
+
+        logger::info("save: wrote {} affix enchantment(s)", count);
+    }
+
     void SaveCallback(SKSE::SerializationInterface* a_intfc)
     {
-        // One record each, written in turn. Kept as two calls rather than one
-        // body so a failure part-way through the actor set cannot also cost the
-        // tier map -- each record's early returns end only its own record.
+        // One record each, written in turn. Kept as separate calls rather than
+        // one body so a failure part-way through one set cannot also cost the
+        // others -- each record's early returns end only its own record.
         SaveRolledActors(a_intfc);
         SaveEnchTiers(a_intfc);
+        SaveAffixEnchs(a_intfc);
     }
 
     // One kEnchTiers record. Split out so the dispatch in LoadCallback stays a
@@ -164,6 +202,51 @@ namespace
             dropped ? std::format(", dropped {} that no longer resolve", dropped) : "");
     }
 
+    // One kAffixEnchs record. The same shape as the tier loader minus the band.
+    void LoadAffixEnchs(SKSE::SerializationInterface* a_intfc, std::uint32_t a_version)
+    {
+        if (a_version != kVersion) {
+            logger::warn("load: affix-enchantment record is version {}, this build understands {}. "
+                         "Skipping it -- finite-charge weapons in this save will not be "
+                         "enchantable.",
+                a_version, kVersion);
+            return;
+        }
+
+        std::uint32_t count = 0;
+        if (!a_intfc->ReadRecordData(count)) {
+            logger::error("load: could not read the affix-enchantment count");
+            return;
+        }
+
+        std::size_t restored = 0;
+        std::size_t dropped = 0;
+
+        std::scoped_lock lock{ g_tierLock };
+        for (std::uint32_t i = 0; i < count; ++i) {
+            RE::FormID oldID = 0;
+            if (!a_intfc->ReadRecordData(oldID)) {
+                logger::error("load: affix-enchantment record ended after {} of {} entries",
+                    i, count);
+                break;
+            }
+
+            // Dynamic forms, remapped for the same reason the tier map is: the
+            // created-object block is renumbered as objects come and go, and a
+            // raw id would call some other enchantment ours.
+            RE::FormID newID = 0;
+            if (!a_intfc->ResolveFormID(oldID, newID)) {
+                ++dropped;
+                continue;
+            }
+            g_affixEnch.insert(newID);
+            ++restored;
+        }
+
+        logger::info("load: restored {} affix enchantment(s){}", restored,
+            dropped ? std::format(", dropped {} that no longer resolve", dropped) : "");
+    }
+
     void LoadCallback(SKSE::SerializationInterface* a_intfc)
     {
         std::uint32_t type = 0;
@@ -176,6 +259,10 @@ namespace
         while (a_intfc->GetNextRecordInfo(type, version, length)) {
             if (type == kEnchTiers) {
                 LoadEnchTiers(a_intfc, version);
+                continue;
+            }
+            if (type == kAffixEnchs) {
+                LoadAffixEnchs(a_intfc, version);
                 continue;
             }
             if (type != kRolledActors) {
@@ -229,14 +316,19 @@ namespace
     void RevertCallback(SKSE::SerializationInterface*)
     {
         std::size_t hadTiers = 0;
+        std::size_t hadAffix = 0;
         {
             // The tier map is save-scoped exactly as the actor set is. Save A's
             // created enchantments do not exist in save B, and their FormIDs
             // are reused by B's own created objects -- so keeping the map would
-            // not merely be stale, it would colour unrelated items.
+            // not merely be stale, it would colour unrelated items. The affix
+            // set is keyed the same way and would misbehave the same way: it
+            // would let the table strip an enchantment that is not ours.
             std::scoped_lock tierLock{ g_tierLock };
             hadTiers = g_enchTier.size();
+            hadAffix = g_affixEnch.size();
             g_enchTier.clear();
+            g_affixEnch.clear();
         }
 
         std::scoped_lock lock{ g_lock };
@@ -248,8 +340,9 @@ namespace
         // save B loads, and every actor A had already rolled would be silently
         // skipped in B -- a bug that only appears when someone loads two saves
         // in one session, which is to say, constantly.
-        logger::info("revert: cleared {} rolled actor(s) and {} enchantment tier(s)",
-            had, hadTiers);
+        logger::info("revert: cleared {} rolled actor(s), {} enchantment tier(s) and {} affix "
+                     "enchantment(s)",
+            had, hadTiers, hadAffix);
     }
 }
 
@@ -309,6 +402,7 @@ void Persist::Clear()
     g_rolled.clear();
     std::scoped_lock tierLock{ g_tierLock };
     g_enchTier.clear();
+    g_affixEnch.clear();
 }
 
 void Persist::NoteEnchTier(RE::FormID a_enchantment, std::uint8_t a_band)
@@ -342,4 +436,34 @@ std::size_t Persist::EnchTierCount()
 {
     std::scoped_lock lock{ g_tierLock };
     return g_enchTier.size();
+}
+
+void Persist::NoteAffixEnch(RE::FormID a_enchantment)
+{
+    if (a_enchantment == 0) {
+        return;
+    }
+    std::scoped_lock lock{ g_tierLock };
+    g_affixEnch.insert(a_enchantment);
+}
+
+bool Persist::IsAffixEnch(RE::FormID a_enchantment)
+{
+    if (a_enchantment == 0) {
+        return false;
+    }
+    std::scoped_lock lock{ g_tierLock };
+    return g_affixEnch.contains(a_enchantment);
+}
+
+void Persist::ForgetAffixEnch(RE::FormID a_enchantment)
+{
+    std::scoped_lock lock{ g_tierLock };
+    g_affixEnch.erase(a_enchantment);
+}
+
+std::size_t Persist::AffixEnchCount()
+{
+    std::scoped_lock lock{ g_tierLock };
+    return g_affixEnch.size();
 }

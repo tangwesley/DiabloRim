@@ -10,7 +10,8 @@
 //
 //    * the created ENCH persists across a real restart, and the engine dedupes
 //      identical effect sets, refcounting the sharing itself
-//    * charge 0 fires from empty and draws no meter
+//    * charge 0 fires from empty and draws no meter -- the default; the
+//      WeaponCharge setting turns that into a real cost and a real meter
 //    * ExtraEnchantment is inert when the record carries an EITM, which is why
 //      enchanted bases get swapped for their plain template
 //    * detaching with RemoveByType does NOT release the reference, and that is
@@ -156,4 +157,11 @@ namespace Apply
     // the manager counting a reference nothing holds, the save records it, and
     // the load throws.
     void Release(RE::ExtraDataList* a_xList, bool a_isWeapon);
+
+    // The bottom half of Release, for a created enchantment that has ALREADY
+    // been detached from its list -- the enchanting table holds ours that way
+    // for the length of a menu. Decrements the manager's refcount, and drops the
+    // band and ownership records only if that was the last holder: the manager
+    // dedupes identical effect sets, so another item may still be carrying it.
+    void ReleaseCreated(RE::EnchantmentItem* a_ench, bool a_isWeapon);
 }

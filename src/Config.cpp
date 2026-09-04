@@ -10,6 +10,7 @@
 #include "roll/Roll.h"
 
 #include <algorithm>
+#include <format>
 #include <fstream>
 #include <string>
 
@@ -44,6 +45,15 @@ namespace
     // is for -- "0" and "absent" must not mean the same thing.
     bool g_tierMarkerInName = false;
     bool g_tierMarkerInNameSet = false;
+
+    // Off, and the three numbers only matter once it is on. See Config.h.
+    bool g_weaponCharge = false;
+    int  g_weaponChargeCost = 10;
+    int  g_weaponChargeCostPerPoint = 2;
+
+    // Indexed by roll::Band. White is a placeholder that is never read: a white
+    // item carries no enchantment, so there is nothing to charge.
+    std::uint16_t g_weaponChargeAmount[roll::kBandCount] = { 0, 1000, 1500, 2000, 2500, 3000 };
 
     std::string Trim(std::string a_text)
     {
@@ -83,6 +93,15 @@ namespace
             logger::warn("{}: '{}' is not a number; using {}", kPath, a_value, a_fallback);
             return a_fallback;
         }
+    }
+
+    // Reads one band's charge amount off an INI line. Sixteen bits is the
+    // engine's own ceiling on an instance's charge.
+    void ReadChargeAmount(roll::Band a_band, const std::string& a_value)
+    {
+        auto& slot = g_weaponChargeAmount[static_cast<int>(a_band)];
+        slot = static_cast<std::uint16_t>(
+            AsFloat(a_value, static_cast<float>(slot), 1.0f, 65535.0f));
     }
 }
 
@@ -149,6 +168,22 @@ void Config::Load()
         } else if (key == "tiermarkerinname") {
             g_tierMarkerInName = AsBool(value);
             g_tierMarkerInNameSet = true;
+        } else if (key == "weaponcharge") {
+            g_weaponCharge = AsBool(value);
+        } else if (key == "weaponchargeblue") {
+            ReadChargeAmount(roll::Band::kBlue, value);
+        } else if (key == "weaponchargeyellow") {
+            ReadChargeAmount(roll::Band::kYellow, value);
+        } else if (key == "weaponchargepurple") {
+            ReadChargeAmount(roll::Band::kPurple, value);
+        } else if (key == "weaponchargeorange") {
+            ReadChargeAmount(roll::Band::kOrange, value);
+        } else if (key == "weaponchargered") {
+            ReadChargeAmount(roll::Band::kRed, value);
+        } else if (key == "weaponchargecost") {
+            g_weaponChargeCost = static_cast<int>(AsFloat(value, 10.0f, 1.0f, 10000.0f));
+        } else if (key == "weaponchargecostperpoint") {
+            g_weaponChargeCostPerPoint = static_cast<int>(AsFloat(value, 2.0f, 0.0f, 1000.0f));
         } else {
             // Named, because a silently ignored setting is how someone spends an
             // evening wondering why their edit did nothing.
@@ -174,12 +209,20 @@ void Config::Load()
 
     logger::info(
         "{}: {} setting(s) applied -- distribution {}, quest rewards {}, discovery {}, "
-        "verbose survey {}, tier marker {} ({}), container loot x{:.2f}",
+        "verbose survey {}, tier marker {} ({}), container loot x{:.2f}, weapon charge {}",
         kPath, applied, g_distribution ? "on" : "OFF", g_questRewards ? "on" : "OFF",
         g_discovery ? "ON" : "off", g_verboseSurvey ? "ON" : "off",
         g_tierMarker.empty() ? std::string{ "(none)" } : "'" + g_tierMarker + "'",
         g_tierMarkerInName ? "in item names" : "on hover only (names left alone)",
-        g_containerLoot);
+        g_containerLoot,
+        g_weaponCharge ? std::format("ON ({}/{}/{}/{}/{} charge blue..red, {} + {}/point per hit)",
+                             g_weaponChargeAmount[static_cast<int>(roll::Band::kBlue)],
+                             g_weaponChargeAmount[static_cast<int>(roll::Band::kYellow)],
+                             g_weaponChargeAmount[static_cast<int>(roll::Band::kPurple)],
+                             g_weaponChargeAmount[static_cast<int>(roll::Band::kOrange)],
+                             g_weaponChargeAmount[static_cast<int>(roll::Band::kRed)],
+                             g_weaponChargeCost, g_weaponChargeCostPerPoint)
+                       : std::string{ "off (affixes never drain)" });
 }
 
 bool Config::DistributionEnabled()
@@ -215,4 +258,28 @@ std::string_view Config::TierMarker()
 bool Config::TierMarkerInName()
 {
     return g_tierMarkerInName;
+}
+
+bool Config::WeaponChargeEnabled()
+{
+    return g_weaponCharge;
+}
+
+std::uint16_t Config::WeaponChargeAmount(roll::Band a_band)
+{
+    const auto index = static_cast<int>(a_band);
+    if (index < 0 || index >= roll::kBandCount) {
+        return 0;
+    }
+    return g_weaponChargeAmount[index];
+}
+
+int Config::WeaponChargeCost()
+{
+    return g_weaponChargeCost;
+}
+
+int Config::WeaponChargeCostPerPoint()
+{
+    return g_weaponChargeCostPerPoint;
 }

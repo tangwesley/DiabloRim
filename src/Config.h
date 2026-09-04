@@ -11,6 +11,9 @@
 // =============================================================================
 #pragma once
 
+#include "roll/Roll.h"
+
+#include <cstdint>
 #include <string_view>
 
 namespace Config
@@ -87,4 +90,37 @@ namespace Config
     // colours the item by band there, so the glyphs repeat what the player can
     // already see -- while still joining every list's sort key and every save.
     [[nodiscard]] bool TierMarkerInName();
+
+    // ---- weapon charge -----------------------------------------------------
+    //
+    // Whether a rolled WEAPON gets a finite charge, like a vanilla enchanted
+    // weapon: a meter that drains per hit and refills from a soul gem. Off by
+    // default -- affixes have always been free, and a save full of weapons that
+    // suddenly need feeding is a change the player should choose.
+    //
+    // ★WEAPONS ONLY, by the engine's rules rather than ours. Armour enchantments
+    // are constant-effect and have no charge concept at all, so the setting
+    // cannot mean anything for them.
+    //
+    // ★ONLY ITEMS ROLLED FROM HERE ON. The per-hit cost is baked into the
+    // created enchantment when it is built and the charge into the instance
+    // when it is attached; nothing already in a save is revisited in either
+    // direction. Turning this off again leaves the finite weapons finite.
+    [[nodiscard]] bool WeaponChargeEnabled();
+
+    // The maximum charge a freshly rolled weapon carries, by the BAND it rolled
+    // -- a red starts with more in the tank than a blue, the way a better
+    // vanilla weapon ships with a bigger charge. The engine stores an
+    // instance's charge in sixteen bits, so [1, 65535]. Defaults 1000 blue,
+    // 1500 yellow, 2000 purple, 2500 orange, 3000 red. White never gets here:
+    // a white item has no enchantment to charge.
+    [[nodiscard]] std::uint16_t WeaponChargeAmount(roll::Band a_band);
+
+    // Charge drawn per hit: a flat part plus a part per affix POINT of the roll
+    // (1..15, the same sum of points that decides the band), so a blue and a
+    // red drain at different rates the way a weak and a strong vanilla
+    // enchantment do. Defaults 10 and 2: a one-point blue lands about 83 hits
+    // from its 1000 and a fifteen-point red about 75 from its 3000.
+    [[nodiscard]] int WeaponChargeCost();
+    [[nodiscard]] int WeaponChargeCostPerPoint();
 }

@@ -286,7 +286,10 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     //     enchanter's own path; no new records, no ESP.
     //  2. costOverride = 0 does not merely stop the drain -- charge is
     //     irrelevant to such an enchantment. It fires from empty, and at charge
-    //     zero draws no meter at all.
+    //     zero draws no meter at all. (That is still the default. The
+    //     WeaponCharge setting stamps a real cost and a real charge instead,
+    //     and the enchanting table then reads ownership from the co-save
+    //     rather than from the zero -- see Enchanting's IsOurs.)
     //  3. Per-instance data survives the whole journey: corpse, loot, save,
     //     restart, reload, equip. Names included.
     //  4. Which affixes EPW4NPCs reaches is STILL OPEN, and now testable against
