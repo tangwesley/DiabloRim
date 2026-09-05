@@ -11,6 +11,9 @@ magicka,Magicka,Attribute,3,3,41,60,flat,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm
 stamina,Stamina,Attribute,1,1,10,20,flat,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x049507,0,Vigorous,of Stamina
 stamina,Stamina,Attribute,2,2,21,40,flat,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x049507,0,Vigorous,of Stamina
 stamina,Stamina,Attribute,3,3,41,60,flat,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x049507,0,Vigorous,of Stamina
+carry_weight,Carry Weight,Attribute,1,1,10,20,flat,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0F4,0,Unburdened,of Hauling
+carry_weight,Carry Weight,Attribute,2,2,21,40,flat,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0F4,0,Unburdened,of Hauling
+carry_weight,Carry Weight,Attribute,3,3,41,60,flat,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0F4,0,Unburdened,of Hauling
 health_regen,Health Regen,Regeneration,1,1,10,20,pct,0,0,ARMOR|RING|AMULET,100,1,Skyrim.esm|0x07A0F8,0,Mending,of Regeneration
 health_regen,Health Regen,Regeneration,2,2,21,35,pct,0,0,ARMOR|RING|AMULET,100,12,Skyrim.esm|0x07A0F8,0,Mending,of Regeneration
 health_regen,Health Regen,Regeneration,3,3,36,50,pct,0,0,ARMOR|RING|AMULET,100,25,Skyrim.esm|0x07A0F8,0,Mending,of Regeneration

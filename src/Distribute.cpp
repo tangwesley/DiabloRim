@@ -144,6 +144,55 @@ namespace
         return found;
     }
 
+    // ★A WORN WEAPON'S CHARGE LIVES ON THE ACTOR, NOT THE ITEM. Equipping
+    // copies the instance's charge into the actor's item-charge value for that
+    // hand, and unequipping writes that value back onto the item as an
+    // ExtraCharge. An NPC equips its weapon before it is rolled, so the value
+    // it holds is the unenchanted weapon's zero; the roll then puts a max on the
+    // list, nothing re-reads it, and the death unequip writes the zero back --
+    // measured as 0/1000 on every draugr that never swung.
+    //
+    // The value is written DIRECTLY, as the actor value for that hand, which is
+    // all the equip-time read amounts to once the list has been consulted.
+    // Weapons only, worn only, and only when the roll gave the instance a
+    // charge at all: a never-drain affix has no meter to seed.
+    //
+    // ★NOT Actor::RefreshEquippedActorValueCharge, which is the engine's own
+    // routine for exactly this and which crashed, twice, on the same Restless
+    // Draugr in Bleak Falls Sanctum: EXCEPTION_ACCESS_VIOLATION reading 0x48,
+    // two engine calls beneath it, measured on 1.6.1170 with Scrambled Bugs'
+    // weapon-charge fix loaded. Gating it on high process, loaded 3D, and the
+    // process's own equipped-object slot naming this very weapon changed
+    // nothing -- the second crash met every one of those and fell over on the
+    // same instruction. Whatever it dereferences is not something this call
+    // site can provide, so it is not called from here. The plain actor-value
+    // write has no such lookup and is what the refresh would have stored.
+    void RefreshWornCharge(RE::TESObjectREFR* a_refr, const Candidate& a_candidate)
+    {
+        if (!a_candidate.object || !a_candidate.xList ||
+            !a_candidate.object->Is(RE::FormType::Weapon)) {
+            return;
+        }
+        auto* actor = a_refr ? a_refr->As<RE::Actor>() : nullptr;
+        if (!actor || actor->IsDead()) {
+            return;
+        }
+        const bool left = a_candidate.xList->HasType<RE::ExtraWornLeft>();
+        if (!left && !a_candidate.xList->HasType<RE::ExtraWorn>()) {
+            return;
+        }
+        const auto* xEnch = a_candidate.xList->GetByType<RE::ExtraEnchantment>();
+        if (!xEnch || !xEnch->enchantment || xEnch->charge == 0) {
+            return;
+        }
+        auto* owner = actor->AsActorValueOwner();
+        if (!owner) {
+            return;
+        }
+        owner->SetActorValue(left ? RE::ActorValue::kLeftItemCharge : RE::ActorValue::kRightItemCharge,
+            static_cast<float>(xEnch->charge));
+    }
+
     void RollRef(RE::TESObjectREFR* a_refr, int a_itemLevel, bool a_forNpc, bool a_force,
         std::size_t a_cap = kMaxItemsPerActor)
     {
@@ -234,6 +283,7 @@ namespace
                 ++enchantedSkip;
             } else {
                 ++affixed;
+                RefreshWornCharge(a_refr, candidate);
                 // The band, recorded against the enchantment we just created so
                 // another mod's UI can ask about it while it draws. Kept here
                 // rather than inside ToItem because the BAND is a presentation

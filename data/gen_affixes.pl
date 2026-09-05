@@ -25,6 +25,7 @@ my @tiered = (
  ["Health","Attribute","ARMOR|SHIELD",10,20,21,40,41,60,"flat",0,0],
  ["Magicka","Attribute","ARMOR|RING|AMULET",10,20,21,40,41,60,"flat",0,0],
  ["Stamina","Attribute","ARMOR|RING|AMULET",10,20,21,40,41,60,"flat",0,0],
+ ["Carry Weight","Attribute","ARMOR|RING|AMULET",10,20,21,40,41,60,"flat",0,0],
  ["Health Regen","Regeneration","ARMOR|RING|AMULET",10,20,21,35,36,50,"pct",0,0],
  ["Magicka Regen","Regeneration","ARMOR|RING|AMULET",20,40,41,70,71,100,"pct",0,0],
  ["Stamina Regen","Regeneration","ARMOR|RING|AMULET",10,20,21,35,36,50,"pct",0,0],

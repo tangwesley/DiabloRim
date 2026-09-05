@@ -80,6 +80,7 @@ namespace
         { "health", Archetype::kValueModifier, AV::kHealth },
         { "magicka", Archetype::kValueModifier, AV::kMagicka },
         { "stamina", Archetype::kValueModifier, AV::kStamina },
+        { "carry_weight", Archetype::kValueModifier, AV::kCarryWeight },
         { "health_regen", Archetype::kValueModifier, AV::kHealRate, AV::kHealRateMult },
         { "magicka_regen", Archetype::kValueModifier, AV::kMagickaRate, AV::kMagickaRateMult },
         { "stamina_regen", Archetype::kValueModifier, AV::kStaminaRate, AV::kStaminaRateMult },
@@ -154,8 +155,8 @@ namespace
     // reduce the stat it advertises. Nothing downstream would have caught it --
     // the item would simply have felt bad.
     constexpr const char* kMustBeBeneficial[]{
-        "health", "magicka", "stamina", "health_regen", "magicka_regen", "stamina_regen",
-        "one_handed", "two_handed", "archery", "block", "heavy_armor", "light_armor",
+        "health", "magicka", "stamina", "carry_weight", "health_regen", "magicka_regen",
+        "stamina_regen", "one_handed", "two_handed", "archery", "block", "heavy_armor", "light_armor",
         "sneak", "lockpicking", "pickpocket", "barter", "alchemy", "smithing", "armor",
         "unarmed_damage", "alteration_cost", "conjuration_cost", "destruction_cost",
         "illusion_cost", "restoration_cost", "fire_resist", "frost_resist", "shock_resist",
