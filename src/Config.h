@@ -148,4 +148,12 @@ namespace Config
     // found by scanning, and if that ever goes wrong on some build this turns
     // it off without a rebuild. Read at kDataLoaded, before the install.
     [[nodiscard]] bool PriceHookEnabled();
+
+    // ★A DIAGNOSTIC, off by default. Logs what a container holds the instant
+    // its menu opens -- before and after this mod's pass -- and every item
+    // that enters or leaves a non-player container with nothing on the other
+    // end of the move, which is what a quest alias filling a chest, or a
+    // script emptying one, looks like from here. A line per item per open, so
+    // only for a bug report. Read once, at Distribute::Install.
+    [[nodiscard]] bool ContainerTrace();
 }

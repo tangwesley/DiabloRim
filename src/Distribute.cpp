@@ -680,6 +680,122 @@ namespace
         }
     }
 
+    // ★A DIAGNOSTIC, NOT A FEATURE. Off unless the INI says ContainerTrace=1.
+    //
+    // Written for one bug report (2026-09-06): another mod's quest puts an
+    // item into boss chests through an alias inventory when the player enters
+    // the location, and a player saw none with this mod installed. Nothing in
+    // this file removes from a container, so the answer has to come from the
+    // container itself -- what it held the instant its menu opened, before and
+    // after the pass -- and from the event stream: an alias fill is an add
+    // with no source container, a script clean-up is a remove with no
+    // destination, and both are rare enough to print every one.
+    //
+    // NO-INIT on the read, deliberately. The whole point of the "before" dump
+    // is to see whether the chest's inventory exists yet at the moment the
+    // menu opens; forcing it into existence would answer the question by
+    // destroying it.
+    void TraceContainer(RE::TESObjectREFR* a_refr, const char* a_when, bool a_authored)
+    {
+        if (!a_refr) {
+            return;
+        }
+        auto* base = a_refr->GetBaseObject();
+        const bool hasChanges = a_refr->extraList.HasType<RE::ExtraContainerChanges>();
+        auto* changes = a_refr->GetInventoryChanges(true);
+
+        std::size_t entries = 0;
+        if (changes && changes->entryList) {
+            for (const auto* entry : *changes->entryList) {
+                (void)entry;
+                ++entries;
+            }
+        }
+        logger::info("trace: container {:08X} '{}' (base {:08X}) {} -- changes {}, {} entr{}",
+            a_refr->GetFormID(), base ? base->GetName() : "?", base ? base->GetFormID() : 0u,
+            a_when, hasChanges ? "present" : "ABSENT", entries, entries == 1 ? "y" : "ies");
+
+        if (a_authored) {
+            if (auto* cont = a_refr->GetContainer()) {
+                cont->ForEachContainerObject([&](RE::ContainerObject& a_entry) {
+                    const bool leveled = a_entry.obj && a_entry.obj->As<RE::TESLevItem>();
+                    logger::info("trace:   authored {:>3} x '{}' [{:08X}] {}{}", a_entry.count,
+                        a_entry.obj ? a_entry.obj->GetName() : "?",
+                        a_entry.obj ? a_entry.obj->GetFormID() : 0u,
+                        a_entry.obj ? a_entry.obj->GetFormType() : RE::FormType::None,
+                        leveled ? "  (leveled: re-rolled by the multiplier)" : "");
+                    return RE::BSContainer::ForEachResult::kContinue;
+                });
+            }
+        }
+
+        if (!changes || !changes->entryList) {
+            return;
+        }
+        constexpr std::size_t kMaxLines = 200;
+        std::size_t           shown = 0;
+        for (const auto* entry : *changes->entryList) {
+            if (!entry || !entry->object) {
+                logger::info("trace:   (null entry)");
+                continue;
+            }
+            if (++shown > kMaxLines) {
+                logger::info("trace:   ... and {} more", entries - kMaxLines);
+                break;
+            }
+            std::size_t lists = 0;
+            if (entry->extraLists) {
+                for (const auto* xList : *entry->extraLists) {
+                    if (xList) {
+                        ++lists;
+                    }
+                }
+            }
+            logger::info("trace:   {:>4} x '{}' [{:08X}] {}  lists {}{}", entry->countDelta,
+                entry->object->GetName(), entry->object->GetFormID(),
+                entry->object->GetFormType(), lists, entry->IsQuestObject() ? "  QUEST" : "");
+        }
+    }
+
+    // The event half of the trace. Fires on whatever thread the engine moves
+    // an item on, so it does what QuestReward's sink already does there and no
+    // more: a FormID lookup and a name.
+    class TraceSink : public RE::BSTEventSink<RE::TESContainerChangedEvent>
+    {
+    public:
+        static TraceSink* GetSingleton()
+        {
+            static TraceSink singleton;
+            return &singleton;
+        }
+
+        RE::BSEventNotifyControl ProcessEvent(const RE::TESContainerChangedEvent*      a_event,
+            RE::BSTEventSource<RE::TESContainerChangedEvent>*) override
+        {
+            if (!a_event) {
+                return RE::BSEventNotifyControl::kContinue;
+            }
+            constexpr RE::FormID kPlayer = 0x14;
+            const bool fromNothing = a_event->oldContainer == 0 && a_event->newContainer != 0 &&
+                                     a_event->newContainer != kPlayer;
+            const bool toNothing = a_event->newContainer == 0 && a_event->oldContainer != 0 &&
+                                   a_event->oldContainer != kPlayer;
+            if (!fromNothing && !toNothing) {
+                return RE::BSEventNotifyControl::kContinue;
+            }
+
+            const auto contID = fromNothing ? a_event->newContainer : a_event->oldContainer;
+            auto*      item = RE::TESForm::LookupByID(a_event->baseObj);
+            auto*      cont = RE::TESForm::LookupByID(contID);
+            logger::info("trace: {}{} x '{}' [{:08X}] {} container {:08X} '{}'{}",
+                fromNothing ? "+" : "-", a_event->itemCount, item ? item->GetName() : "?",
+                a_event->baseObj, fromNothing ? "INTO" : "OUT OF", contID,
+                cont ? cont->GetName() : "?",
+                cont && cont->Is(RE::FormType::ActorCharacter) ? " (an actor)" : "");
+            return RE::BSEventNotifyControl::kContinue;
+        }
+    };
+
     // ★CONTAINERS ROLL WHEN OPENED, not when loaded.
     //
     // The load-event path cannot reach them. AffixableItems asks for inventory
@@ -725,7 +841,14 @@ namespace
                     std::scoped_lock lock{ g_statsLock };
                     ++g_stats.containersOpened;
                 }
+                const bool trace = Config::ContainerTrace();
+                if (trace) {
+                    TraceContainer(ref.get(), "as its menu opens, BEFORE this mod's pass", true);
+                }
                 RollContainer(ref.get(), false, true, kMaxItemsPerActor);
+                if (trace) {
+                    TraceContainer(ref.get(), "AFTER this mod's pass", false);
+                }
             }
 
             return RE::BSEventNotifyControl::kContinue;
@@ -925,6 +1048,11 @@ void Distribute::Install()
 
     holder->AddEventSink<RE::TESObjectLoadedEvent>(ActorLoadSink::GetSingleton());
     holder->AddEventSink<RE::TESResetEvent>(ResetSink::GetSingleton());
+    if (Config::ContainerTrace()) {
+        holder->AddEventSink<RE::TESContainerChangedEvent>(TraceSink::GetSingleton());
+        logger::warn("distribute: ContainerTrace is ON -- every container open is dumped to "
+                     "this log; turn it off in DiabloLoot.ini once the report is filed");
+    }
 
     if (auto* ui = RE::UI::GetSingleton()) {
         ui->AddEventSink<RE::MenuOpenCloseEvent>(ContainerMenuSink::GetSingleton());

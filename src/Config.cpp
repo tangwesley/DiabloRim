@@ -21,6 +21,7 @@ namespace
     bool g_distribution = true;
     bool g_questRewards = true;
     bool g_discovery = false;
+    bool g_containerTrace = false;
     bool g_verboseSurvey = false;
 
     // 1.0 is vanilla. Clamped rather than validated: an INI is edited by hand,
@@ -170,6 +171,8 @@ void Config::Load()
             g_discovery = AsBool(value);
         } else if (key == "verbosesurvey") {
             g_verboseSurvey = AsBool(value);
+        } else if (key == "containertrace") {
+            g_containerTrace = AsBool(value);
         } else if (key == "tiermarker") {
             // ★VERBATIM, AND AN EMPTY VALUE IS A REAL ANSWER. "TierMarker="
             // means the player wants no marker, which is different from leaving
@@ -273,6 +276,11 @@ float Config::ContainerLootMultiplier()
 bool Config::DiscoveryEnabled()
 {
     return g_discovery;
+}
+
+bool Config::ContainerTrace()
+{
+    return g_containerTrace;
 }
 
 bool Config::VerboseSurvey()
