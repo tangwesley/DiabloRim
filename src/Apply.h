@@ -10,7 +10,8 @@
 //
 //    * the created ENCH persists across a real restart, and the engine dedupes
 //      identical effect sets, refcounting the sharing itself
-//    * charge 0 fires from empty and draws no meter
+//    * charge 0 fires from empty and draws no meter -- the default; the
+//      WeaponCharge setting turns that into a real cost and a real meter
 //    * ExtraEnchantment is inert when the record carries an EITM, which is why
 //      enchanted bases get swapped for their plain template
 //    * detaching with RemoveByType does NOT release the reference, and that is
@@ -27,7 +28,11 @@ namespace Apply
     // Resolves every "plugin|0xLOCALID" token in the table to a live
     // EffectSetting, once, and complains loudly about the ones that fail. Call
     // on kDataLoaded, after the table has loaded. Returns how many resolved.
-    std::size_t ResolveEffects(const roll::AffixTable& a_table);
+    //
+    // TAKES THE TABLE MUTABLE because resolving an effect can narrow where its
+    // affix rolls: a row that fortifies a weapon skill and lists WEAPON is cut
+    // down to the weapon type that skill governs. See NarrowWeaponSlots.
+    std::size_t ResolveEffects(roll::AffixTable& a_table);
 
     // Indexes every weapon and armour reachable from a leveled item list, once,
     // at kDataLoaded. Returns how many distinct base records were found.
@@ -61,6 +66,12 @@ namespace Apply
     // renumbered. The enchanting table needs that certainty: a false negative
     // there is an item the player cannot enchant.
     [[nodiscard]] bool IsAffixEffect(const RE::EffectSetting* a_effect);
+
+    // Whether this effect belongs on the WIELDER of a weapon rather than on
+    // whatever the weapon hits: a Fortify One-Handed, Two-Handed or Archery,
+    // or a Fortify <School> spell-cost reduction. The weapon enchantment
+    // cannot deliver any of them; Wielder does, as an ability.
+    [[nodiscard]] bool IsWielderEffect(const RE::EffectSetting* a_effect);
 
     // What an item can carry, as a roll::Slot mask. kNone means "not something
     // this system affixes".
@@ -138,6 +149,18 @@ namespace Apply
     Applied ToNewInstance(const roll::RolledItem& a_rolled, RE::TESBoundObject* a_object,
         RE::TESObjectREFR* a_refr);
 
+    // Whether a_refr is somewhere a drop can land: in an attached cell, with
+    // its 3D loaded. ToNewInstance refuses otherwise; a caller should ask this
+    // first and decide what to do with the item -- QuestReward skips it.
+    //
+    // ★A NEW GAME IS THE CASE. Alternate Start grants the starting clothes
+    // while the player is still nowhere -- no parent cell, no 3D -- and the
+    // reward drain fired half a second later, dropping a Roughspun Tunic into a
+    // cell that did not exist. The engine dereferenced null and the game died
+    // in the player's very first minute (crash log 2026-09-05 17:57). Such
+    // grants are now refused at the sink; this is the backstop behind that.
+    [[nodiscard]] bool CanDropFrom(RE::TESObjectREFR* a_refr);
+
     // Whether ToNewInstance is mid-surgery ON THIS THREAD.
     //
     // ★THE DROP AND THE PICKUP ARE INVENTORY CHANGES LIKE ANY OTHER, and the
@@ -156,4 +179,11 @@ namespace Apply
     // the manager counting a reference nothing holds, the save records it, and
     // the load throws.
     void Release(RE::ExtraDataList* a_xList, bool a_isWeapon);
+
+    // The bottom half of Release, for a created enchantment that has ALREADY
+    // been detached from its list -- the enchanting table holds ours that way
+    // for the length of a menu. Decrements the manager's refcount, and drops the
+    // band and ownership records only if that was the last holder: the manager
+    // dedupes identical effect sets, so another item may still be carrying it.
+    void ReleaseCreated(RE::EnchantmentItem* a_ench, bool a_isWeapon);
 }

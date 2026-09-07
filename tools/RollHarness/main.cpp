@@ -73,7 +73,10 @@ namespace
     };
 
     constexpr SlotSample kSlots[]{
-        { "weapon", roll::kWeapon, 40 },
+        { "one-handed", roll::kWeapon | roll::kOneHanded, 20 },
+        { "two-handed", roll::kWeapon | roll::kTwoHanded, 10 },
+        { "bow", roll::kWeapon | roll::kBow, 8 },
+        { "staff", roll::kWeapon | roll::kStaff, 2 },
         { "body armor", roll::kArmor | roll::kBody, 25 },
         { "shield", roll::kArmor | roll::kShield, 10 },
         { "boots", roll::kArmor | roll::kFeet, 8 },

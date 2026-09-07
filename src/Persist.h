@@ -82,6 +82,50 @@ namespace Persist
 
     [[nodiscard]] std::size_t EnchTierCount();
 
+    // ---- "this enchantment is ours", keyed by the created enchantment -------
+    //
+    // The set of created enchantments Apply built and attached. It exists for
+    // exactly one reader: the enchanting table, which has to know whether the
+    // enchantment on an item is an affix set it may detach and put back, or
+    // somebody else's work it must leave alone.
+    //
+    // ★A SECOND SET RATHER THAN A FLAG ON THE TIER MAP, because the two do not
+    // agree about merged items. When the player enchants an affixed item the
+    // affixes are folded into a new enchantment that keeps the BAND -- it is
+    // still coloured as the roll it came from -- but is NOT ours to strip: it
+    // carries the player's own effects, and stripping it would let the table
+    // enchant the item twice. The tier map says "band 3"; this set says "no".
+    //
+    // Why a record at all, when the enchantment's shape used to be enough: the
+    // shape was "override flag set with cost zero", which is precisely what
+    // finite weapon charge takes away. The structural half -- every effect on
+    // it is one the affix table can produce -- still stands, and Enchanting
+    // requires it as well as this set; a stale entry whose id the engine has
+    // handed to some other created object cannot match on its own.
+    //
+    // Same remap, same revert, same reuse hazard as the tier map, and the same
+    // answer to it: an entry is dropped when its enchantment is destroyed.
+    void NoteAffixEnch(RE::FormID a_enchantment);
+
+    [[nodiscard]] bool IsAffixEnch(RE::FormID a_enchantment);
+
+    void ForgetAffixEnch(RE::FormID a_enchantment);
+
+    [[nodiscard]] std::size_t AffixEnchCount();
+
+    // ---- vendor restock day, keyed by the merchant chest ---------------------
+    //
+    // The faction's lastDayReset as it stood when the chest was last rolled.
+    // A merchant chest is refilled by the engine on its own schedule with no
+    // event to say so; comparing the day now to the day recorded is how
+    // Distribute knows the stock is new. Same remap and revert as the rest.
+    void NoteVendorDay(RE::FormID a_chest, std::uint32_t a_day);
+
+    // 0 when nothing was recorded.
+    [[nodiscard]] std::uint32_t VendorDay(RE::FormID a_chest);
+
+    [[nodiscard]] std::size_t VendorDayCount();
+
     // Forgets everything. Used by the revert callback and available for a
     // console-driven reset while testing.
     void Clear();

@@ -25,12 +25,30 @@ my @tiered = (
  ["Health","Attribute","ARMOR|SHIELD",10,20,21,40,41,60,"flat",0,0],
  ["Magicka","Attribute","ARMOR|RING|AMULET",10,20,21,40,41,60,"flat",0,0],
  ["Stamina","Attribute","ARMOR|RING|AMULET",10,20,21,40,41,60,"flat",0,0],
+ ["Carry Weight","Attribute","ARMOR|RING|AMULET",10,20,21,40,41,60,"flat",0,0],
  ["Health Regen","Regeneration","ARMOR|RING|AMULET",10,20,21,35,36,50,"pct",0,0],
  ["Magicka Regen","Regeneration","ARMOR|RING|AMULET",20,40,41,70,71,100,"pct",0,0],
  ["Stamina Regen","Regeneration","ARMOR|RING|AMULET",10,20,21,35,36,50,"pct",0,0],
- ["One-Handed","Combat Skill","ARMOR|RING|AMULET",5,10,11,20,21,30,"pct",0,0],
- ["Two-Handed","Combat Skill","ARMOR|RING|AMULET",5,10,11,20,21,30,"pct",0,0],
- ["Archery","Combat Skill","ARMOR|RING|AMULET",5,10,11,20,21,30,"pct",0,0],
+ # ★WEAPON SKILLS ROLL ON THE WEAPON THEIR SKILL GOVERNS, never another.
+ # The slots column knows three typed weapon tokens beside WEAPON:
+ #   ONEHANDED  sword, dagger, axe, mace
+ #   TWOHANDED  greatsword, battleaxe, warhammer
+ #   BOW        bow and crossbow
+ #   STAFF      staff -- no skill, but one hand, with a spell in the other
+ # A weapon presents WEAPON plus its type, so a WEAPON row reaches every
+ # weapon and a TWOHANDED row reaches only greatswords. The plugin ALSO
+ # narrows on load: any row whose effect fortifies One-Handed, Two-Handed or
+ # Archery and lists WEAPON (or the wrong type) is cut to the matching type,
+ # so a two-handed weapon cannot carry a One-Handed bonus however the CSV is
+ # written. One-Handed narrows to ONEHANDED|STAFF: a staff is held in one
+ # hand, and the decision was that the bonus belongs on it.
+ # ★ON A WEAPON THE BUFF IS DELIVERED BY THE PLUGIN, NOT THE ENCHANTMENT. A
+ # weapon enchantment reaches only what it hits, so Wielder.cpp hands the
+ # holder an ability for the length of the equip. The effect stays in the
+ # enchantment as well, so the card reads right; on hit it does nothing.
+ ["One-Handed","Combat Skill","ONEHANDED|STAFF|ARMOR|RING|AMULET",5,10,11,20,21,30,"pct",0,0],
+ ["Two-Handed","Combat Skill","TWOHANDED|ARMOR|RING|AMULET",5,10,11,20,21,30,"pct",0,0],
+ ["Archery","Combat Skill","BOW|ARMOR|RING|AMULET",5,10,11,20,21,30,"pct",0,0],
  ["Block","Combat Skill","SHIELD|ARMOR",5,10,11,20,21,30,"pct",0,0],
  ["Heavy Armor","Armor Skill","ARMOR|RING|AMULET",5,10,11,18,19,25,"flat",0,0],
  ["Light Armor","Armor Skill","ARMOR|RING|AMULET",5,10,11,18,19,25,"flat",0,0],
@@ -85,9 +103,14 @@ my @tiered = (
 # the minus literally produced mag=-5.2, which the engine CLAMPED TO ZERO --
 # measured on a necklace reading "Conjuration spells cost 0% less". A silently
 # dead affix, the same failure mode as duration=0.
+# ★SPELL COST ROLLS ON ONE-HANDED WEAPONS AND STAVES as well as apparel: a
+# sword or a staff in one hand leaves the other free for the spell, and the
+# plugin delivers the reduction to the wielder the same way it does a weapon
+# skill (Wielder.cpp). Two-handed weapons and bows fill both hands, so not
+# those.
 my @schools = qw(Alteration Conjuration Destruction Illusion Restoration);
 for my $s (@schools) {
-  push @tiered, ["$s Cost","Magic","ARMOR|RING|AMULET",5,8,9,15,16,20,"pct",0,0];
+  push @tiered, ["$s Cost","Magic","ONEHANDED|STAFF|ARMOR|RING|AMULET",5,8,9,15,16,20,"pct",0,0];
 }
 for my $e (qw(Fire Frost Shock)) {
   push @tiered, ["$e Resist","Resistance","ARMOR|SHIELD|RING|AMULET",10,20,21,35,36,50,"pct",0,0];

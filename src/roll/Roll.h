@@ -15,6 +15,7 @@
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <random>
 #include <string>
 #include <string_view>
@@ -22,14 +23,38 @@
 
 namespace roll
 {
+    // ----------------------------------------------------------------- paths
+    // A path rendered for a log line or an error message. Always UTF-8, never
+    // path::string(): that one converts through the ANSI code page and THROWS
+    // on any character the page cannot hold, which on a non-English Windows is
+    // a routine filename, not an edge case. Nothing that merely wants to print
+    // a name should be able to take the process down.
+    [[nodiscard]] inline std::string PathToUtf8(const std::filesystem::path& a_path)
+    {
+        const auto u8 = a_path.u8string();
+        return std::string(u8.begin(), u8.end());
+    }
+
     // ---------------------------------------------------------------- slots
     // A bit per place an affix can live. An item presents the mask it occupies
     // and an affix presents the mask it allows; they must intersect.
+    //
+    // Weapons carry a TYPE bit beside the generic one, the way armour carries
+    // a piece bit beside kArmor: a greatsword presents kWeapon | kTwoHanded. An
+    // affix that says WEAPON lands on any of them; one that says TWOHANDED
+    // lands only there. That is how a skill bonus stays on the weapon whose
+    // skill it is -- a two-handed weapon can never carry a One-Handed affix,
+    // because no row that means One-Handed carries the kTwoHanded bit.
+    //
+    // Staves have a bit of their own. No combat skill governs them, but they
+    // are held in one hand beside a spell, which is exactly where a One-Handed
+    // or spell-cost bonus belongs -- so those rows name STAFF and the
+    // elemental on-hit rows, which say WEAPON, reach them as before.
     enum Slot : std::uint32_t
     {
         kNone = 0,
-        kWeapon = 1u << 0,
-        kArmor = 1u << 1,  // any armor piece, including shields
+        kWeapon = 1u << 0,  // any weapon, whatever its type
+        kArmor = 1u << 1,   // any armor piece, including shields
         kShield = 1u << 2,
         kHead = 1u << 3,
         kBody = 1u << 4,
@@ -37,7 +62,15 @@ namespace roll
         kFeet = 1u << 6,
         kRing = 1u << 7,
         kAmulet = 1u << 8,
+        kOneHanded = 1u << 9,   // sword, dagger, axe, mace -- the One-Handed skill
+        kTwoHanded = 1u << 10,  // greatsword, battleaxe, warhammer -- Two-Handed
+        kBow = 1u << 11,        // bow and crossbow -- Archery
+        kStaff = 1u << 12,      // staff -- no skill, one hand, a spell in the other
     };
+
+    // The typed weapon bits together, so "does this row name a weapon type"
+    // is one test rather than four.
+    inline constexpr std::uint32_t kWeaponTypes = kOneHanded | kTwoHanded | kBow | kStaff;
 
     [[nodiscard]] std::uint32_t ParseSlots(std::string_view a_text);
     [[nodiscard]] std::string   SlotsToString(std::uint32_t a_slots);
@@ -81,17 +114,18 @@ namespace roll
         // malformed row. Returns false only when nothing usable loaded --
         // individual bad rows are skipped and reported, never fatal, because a
         // user editing a balance CSV should get a complaint rather than a crash.
-        bool Load(const std::string& a_path, std::vector<std::string>& a_errors);
+        bool Load(const std::filesystem::path& a_path, std::vector<std::string>& a_errors);
         bool LoadFromString(std::string_view a_csv, std::vector<std::string>& a_errors);
 
         // Adds to what is already loaded. An affixId that already exists has its
         // tiers REPLACED, so an add-on can rebalance a base affix as well as
         // introduce new ones. This is how a "Summermyst affixes" patch ships as a
         // drop-in file instead of a fork of the base table.
-        bool MergeFile(const std::string& a_path, std::vector<std::string>& a_errors);
+        bool MergeFile(const std::filesystem::path& a_path, std::vector<std::string>& a_errors);
         bool Merge(std::string_view a_csv, std::vector<std::string>& a_errors);
 
         [[nodiscard]] const std::vector<Affix>& Affixes() const noexcept { return _affixes; }
+        [[nodiscard]] std::vector<Affix>&       Affixes() noexcept { return _affixes; }
         [[nodiscard]] std::size_t               TierRowCount() const noexcept;
         [[nodiscard]] bool                      Empty() const noexcept { return _affixes.empty(); }
 

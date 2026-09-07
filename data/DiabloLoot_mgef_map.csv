@@ -12,6 +12,7 @@ armor,Skyrim.esm|0x017120,0,0,Fortify Armor Rating,used by APPAREL enchantments
 banish,Skyrim.esm|0x0ACBB5,0,0,Banish,used by WEAPON enchantments
 barter,Skyrim.esm|0x07A104,0,0,Fortify Speech,used by APPAREL enchantments
 block,Skyrim.esm|0x07A0F3,0,0,Fortify Block,used by APPAREL enchantments
+carry_weight,Skyrim.esm|0x07A0F4,0,0,Fortify Carry Weight,used by APPAREL enchantments
 conjuration_cost,Skyrim.esm|0x07A0F5,0,0,Fortify Conjuration,used by APPAREL enchantments
 damage_magicka,Skyrim.esm|0x05B44F,0,0,Magicka Damage,used by WEAPON enchantments
 damage_stamina,Skyrim.esm|0x05B450,0,0,Stamina Damage,used by WEAPON enchantments

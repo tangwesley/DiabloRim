@@ -318,6 +318,23 @@ namespace
             return;
         }
 
+        // ★NOT IN THE WORLD: SKIPPED, NOT DEFERRED. The grant-time check below
+        // in GrantSink catches the ordinary case -- a new game's starting kit --
+        // but a grant can also settle across a cell transition. The drop
+        // ToNewInstance relies on has no floor to land on either way, and the
+        // decision taken for the new-game case is to leave such items plain
+        // rather than hold them over, so this does the same.
+        if (!Apply::CanDropFrom(RE::PlayerCharacter::GetSingleton())) {
+            for (const auto& pending : ready) {
+                logger::info("quest reward: {:08X} not rolled -- settled while the player was "
+                             "not in the world",
+                    pending.baseObj);
+            }
+            std::scoped_lock lock{ g_statsLock };
+            g_stats.notInWorld += ready.size();
+            return;
+        }
+
         for (const auto& pending : ready) {
             auto* form = RE::TESForm::LookupByID(pending.baseObj);
             if (auto* object = form ? form->As<RE::TESBoundObject>() : nullptr) {
@@ -577,6 +594,29 @@ namespace
                 return RE::BSEventNotifyControl::kContinue;
             }
 
+            // ★A NEW GAME'S STARTING KIT IS NOT A REWARD. Alternate Start (and the
+            // vanilla intro) hand the player their first clothes by AddItem, from
+            // nothing, before the player has a cell or 3D -- exactly the shape of a
+            // reward grant, and the Roughspun Tunic went into the queue. Half a
+            // second later the drain dropped it into a cell that did not exist and
+            // the game died (crash log 2026-09-05 17:57). Those items are skipped
+            // outright rather than held over: starting rags with an affix were
+            // never the intent, and the decision is simplest made here, at the
+            // grant, where the reason is still visible.
+            //
+            // Reads two fields off the player and nothing off the inventory, so it
+            // is safe inside the event where inventory walks are not.
+            if (!Apply::CanDropFrom(RE::PlayerCharacter::GetSingleton())) {
+                {
+                    std::scoped_lock lock{ g_statsLock };
+                    ++g_stats.notInWorld;
+                }
+                logger::info("quest reward: {:08X} '{}' not rolled -- granted before the player "
+                             "was in the world (new game start)",
+                    a_event->baseObj, form->GetName());
+                return RE::BSEventNotifyControl::kContinue;
+            }
+
             // ★QUEUED, NOT ROLLED. Nothing here touches the inventory: the
             // engine is still mid-way through the very change being announced,
             // and acting inside it cost two crashes. A FormID is all that leaves
@@ -709,6 +749,8 @@ void QuestReward::LogStats()
         stats.alreadyEnchanted);
     logger::info("    gone           {}   (sold or dropped before it settled)", stats.gone);
     logger::info("    ineligible     {}   (no slot this system affixes)", stats.ineligible);
+    logger::info("    not in world   {}   (granted before the player had a cell -- a new game)",
+        stats.notInWorld);
     if (stats.attachFailed) {
         logger::warn("    ATTACH FAILED  {}", stats.attachFailed);
     }
@@ -717,7 +759,7 @@ void QuestReward::LogStats()
     const auto tallied = stats.affixed + stats.rolledWhite + stats.fromWorld + stats.notGear +
         stats.stacked + stats.fromCrafting + stats.notGeneric + stats.questObject +
         stats.favourited + stats.alreadyEnchanted + stats.gone + stats.ineligible +
-        stats.attachFailed + outstanding;
+        stats.attachFailed + stats.notInWorld + outstanding;
     if (tallied != stats.granted) {
         logger::warn("  ACCOUNTING GAP: {} granted but {} accounted for", stats.granted, tallied);
     }

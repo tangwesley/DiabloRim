@@ -113,6 +113,14 @@ list(APPEND SOURCES src/Notify.h src/Notify.cpp)
 # and the player's enchantment is merged back onto them on the way out.
 list(APPEND SOURCES src/Enchanting.h src/Enchanting.cpp)
 
+# Weapon-skill affixes on the WIELDER: a weapon enchantment only ever reaches
+# what it hits, so the buff rides an ability that follows the weapon on and off.
+list(APPEND SOURCES src/Wielder.h src/Wielder.cpp)
+
+# What a rolled item costs at a merchant: the item-value hook, reached through
+# its call sites. Pricing.h explains the route.
+list(APPEND SOURCES src/Pricing.h src/Pricing.cpp)
+
 # Grid Inventory tint: the ABI shim that lets another mod's UI colour our items.
 # api/GridInventoryAPI.h is a VENDORED COPY of the host's contract header, not a
 # reference into its source tree -- the two mods ship separately, and a build

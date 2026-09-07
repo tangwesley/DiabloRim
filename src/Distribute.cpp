@@ -39,6 +39,11 @@ namespace
     // means somebody's loot is quietly incomplete.
     constexpr std::size_t kMaxItemsPerActor = 12;
 
+    // A merchant chest is the one inventory the player reads top to bottom, so
+    // it gets a cap sized for a shop rather than a bandit. Still a cap: a
+    // modded vendor with a thousand rows must not stall the barter menu.
+    constexpr std::size_t kMaxItemsPerVendor = 64;
+
     // Per-thread RNG. The roller is deterministic given its generator, and
     // sharing one across the task queue would make results depend on scheduling
     // -- reproducible bug reports matter more than a few bytes.
@@ -50,7 +55,42 @@ namespace
 
     // Defined below, beside the level policy each one applies.
     void RollActor(RE::Actor* a_actor, bool a_force);
-    void RollContainer(RE::TESObjectREFR* a_refr, bool a_force);
+    void RollContainer(RE::TESObjectREFR* a_refr, bool a_force, bool a_stock, std::size_t a_cap);
+
+    // ★OURS, not InventoryEntryData::IsEnchanted. CommonLibSSE-NG's version
+    // walks extraLists without a null check on each list:
+    //
+    //     for (const auto& xList : *extraLists)
+    //         xList->GetByType<ExtraEnchantment>()   // no `if (xList)`
+    //
+    // and the engine does hand out entries whose list holds a null pointer. On
+    // one such Stormcloak soldier in Dragonsreach that was a read of
+    // ExtraDataList::_lock at address 0x10 from the distribute task (crash log
+    // 2026-09-07). IsQuestObject and IsFavorited guard; only IsEnchanted forgot.
+    bool EntryIsEnchanted(const RE::InventoryEntryData* a_entry)
+    {
+        if (!a_entry) {
+            return false;
+        }
+        if (a_entry->object) {
+            const auto* enchantable = a_entry->object->As<RE::TESEnchantableForm>();
+            if (enchantable && enchantable->formEnchanting) {
+                return true;
+            }
+        }
+        if (a_entry->extraLists) {
+            for (const auto* xList : *a_entry->extraLists) {
+                if (!xList) {
+                    continue;
+                }
+                const auto* xEnch = xList->GetByType<RE::ExtraEnchantment>();
+                if (xEnch && xEnch->enchantment) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
     struct Candidate
     {
@@ -64,7 +104,7 @@ namespace
     // reading. Unequipped items may have none, and those are counted rather than
     // given one; see the note at the skip below.
     std::vector<Candidate> AffixableItems(RE::TESObjectREFR* a_refr, bool& a_hadInventory,
-        std::size_t& a_noExtraList)
+        std::size_t& a_noExtraList, std::size_t a_cap)
     {
         std::vector<Candidate> found;
 
@@ -88,9 +128,10 @@ namespace
 
             // ★The entry's own guards, which are better than reading extra data
             // by hand: IsQuestObject covers quest items more thoroughly than a
-            // kAliasInstanceArray probe, and IsEnchanted catches an instance
-            // enchantment as well as the record's EITM.
-            if (entry->IsQuestObject() || entry->IsFavorited() || entry->IsEnchanted()) {
+            // kAliasInstanceArray probe, and EntryIsEnchanted catches an instance
+            // enchantment as well as the record's EITM (see it above for why
+            // it is not the CommonLib one).
+            if (entry->IsQuestObject() || entry->IsFavorited() || EntryIsEnchanted(entry)) {
                 continue;
             }
 
@@ -129,9 +170,9 @@ namespace
             }
 
             found.push_back({ entry->object, target });
-            if (found.size() >= kMaxItemsPerActor) {
+            if (found.size() >= a_cap) {
                 logger::warn("distribute: {:08X} hit the {}-item cap; the rest is unaffixed",
-                    a_refr->GetFormID(), kMaxItemsPerActor);
+                    a_refr->GetFormID(), a_cap);
                 return found;
             }
         }
@@ -139,7 +180,57 @@ namespace
         return found;
     }
 
-    void RollRef(RE::TESObjectREFR* a_refr, int a_itemLevel, bool a_forNpc, bool a_force)
+    // ★A WORN WEAPON'S CHARGE LIVES ON THE ACTOR, NOT THE ITEM. Equipping
+    // copies the instance's charge into the actor's item-charge value for that
+    // hand, and unequipping writes that value back onto the item as an
+    // ExtraCharge. An NPC equips its weapon before it is rolled, so the value
+    // it holds is the unenchanted weapon's zero; the roll then puts a max on the
+    // list, nothing re-reads it, and the death unequip writes the zero back --
+    // measured as 0/1000 on every draugr that never swung.
+    //
+    // The value is written DIRECTLY, as the actor value for that hand, which is
+    // all the equip-time read amounts to once the list has been consulted.
+    // Weapons only, worn only, and only when the roll gave the instance a
+    // charge at all: a never-drain affix has no meter to seed.
+    //
+    // ★NOT Actor::RefreshEquippedActorValueCharge, which is the engine's own
+    // routine for exactly this and which crashed, twice, on the same Restless
+    // Draugr in Bleak Falls Sanctum: EXCEPTION_ACCESS_VIOLATION reading 0x48,
+    // two engine calls beneath it, measured on 1.6.1170 with Scrambled Bugs'
+    // weapon-charge fix loaded. Gating it on high process, loaded 3D, and the
+    // process's own equipped-object slot naming this very weapon changed
+    // nothing -- the second crash met every one of those and fell over on the
+    // same instruction. Whatever it dereferences is not something this call
+    // site can provide, so it is not called from here. The plain actor-value
+    // write has no such lookup and is what the refresh would have stored.
+    void RefreshWornCharge(RE::TESObjectREFR* a_refr, const Candidate& a_candidate)
+    {
+        if (!a_candidate.object || !a_candidate.xList ||
+            !a_candidate.object->Is(RE::FormType::Weapon)) {
+            return;
+        }
+        auto* actor = a_refr ? a_refr->As<RE::Actor>() : nullptr;
+        if (!actor || actor->IsDead()) {
+            return;
+        }
+        const bool left = a_candidate.xList->HasType<RE::ExtraWornLeft>();
+        if (!left && !a_candidate.xList->HasType<RE::ExtraWorn>()) {
+            return;
+        }
+        const auto* xEnch = a_candidate.xList->GetByType<RE::ExtraEnchantment>();
+        if (!xEnch || !xEnch->enchantment || xEnch->charge == 0) {
+            return;
+        }
+        auto* owner = actor->AsActorValueOwner();
+        if (!owner) {
+            return;
+        }
+        owner->SetActorValue(left ? RE::ActorValue::kLeftItemCharge : RE::ActorValue::kRightItemCharge,
+            static_cast<float>(xEnch->charge));
+    }
+
+    void RollRef(RE::TESObjectREFR* a_refr, int a_itemLevel, bool a_forNpc, bool a_force,
+        std::size_t a_cap = kMaxItemsPerActor)
     {
         if (!a_refr || !g_table || g_table->Empty()) {
             return;
@@ -176,7 +267,7 @@ namespace
         // is DEFERRED, not consumed.
         bool        hadInventory = false;
         std::size_t noExtraList = 0;
-        const auto  gear = AffixableItems(a_refr, hadInventory, noExtraList);
+        const auto  gear = AffixableItems(a_refr, hadInventory, noExtraList, a_cap);
         if (gear.empty()) {
             std::scoped_lock lock{ g_statsLock };
             ++g_stats.deferredNoGear;
@@ -228,6 +319,7 @@ namespace
                 ++enchantedSkip;
             } else {
                 ++affixed;
+                RefreshWornCharge(a_refr, candidate);
                 // The band, recorded against the enchantment we just created so
                 // another mod's UI can ask about it while it draws. Kept here
                 // rather than inside ToItem because the BAND is a presentation
@@ -538,7 +630,11 @@ namespace
     // which is what makes a Nordic ruin's loot match the ruin rather than the
     // player who wandered in. The same level feeds the bonus resolutions, so the
     // extra loot belongs to the dungeon on exactly the terms its own loot does.
-    void RollContainer(RE::TESObjectREFR* a_refr, bool a_force)
+    // a_stock: whether the loot multiplier applies. Off for a merchant chest --
+    // a shop restocked three times over is a shop giving things away, and the
+    // multiplier is about dungeons. a_cap: how many items the affix pass may
+    // touch.
+    void RollContainer(RE::TESObjectREFR* a_refr, bool a_force, bool a_stock, std::size_t a_cap)
     {
         if (!a_refr) {
             return;
@@ -567,7 +663,7 @@ namespace
         // Stocked BEFORE the affix pass, so the bonus items are in the inventory
         // when it walks them. The other order gives the player a fuller chest of
         // entirely plain gear.
-        const auto added = StockContainer(a_refr, level);
+        const auto added = a_stock ? StockContainer(a_refr, level) : 0;
         if (added) {
             std::scoped_lock lock{ g_statsLock };
             ++g_stats.containersStocked;
@@ -577,12 +673,128 @@ namespace
         // Forced: the claim above already decided this container gets rolled,
         // and RollRef must not re-ask a question that is now answered "yes".
         const auto before = g_stats.actorsRolled;
-        RollRef(a_refr, level, false, true);
+        RollRef(a_refr, level, false, true, a_cap);
         if (g_stats.actorsRolled != before) {
             std::scoped_lock lock{ g_statsLock };
             ++g_stats.containersRolled;
         }
     }
+
+    // ★A DIAGNOSTIC, NOT A FEATURE. Off unless the INI says ContainerTrace=1.
+    //
+    // Written for one bug report (2026-09-06): another mod's quest puts an
+    // item into boss chests through an alias inventory when the player enters
+    // the location, and a player saw none with this mod installed. Nothing in
+    // this file removes from a container, so the answer has to come from the
+    // container itself -- what it held the instant its menu opened, before and
+    // after the pass -- and from the event stream: an alias fill is an add
+    // with no source container, a script clean-up is a remove with no
+    // destination, and both are rare enough to print every one.
+    //
+    // NO-INIT on the read, deliberately. The whole point of the "before" dump
+    // is to see whether the chest's inventory exists yet at the moment the
+    // menu opens; forcing it into existence would answer the question by
+    // destroying it.
+    void TraceContainer(RE::TESObjectREFR* a_refr, const char* a_when, bool a_authored)
+    {
+        if (!a_refr) {
+            return;
+        }
+        auto* base = a_refr->GetBaseObject();
+        const bool hasChanges = a_refr->extraList.HasType<RE::ExtraContainerChanges>();
+        auto* changes = a_refr->GetInventoryChanges(true);
+
+        std::size_t entries = 0;
+        if (changes && changes->entryList) {
+            for (const auto* entry : *changes->entryList) {
+                (void)entry;
+                ++entries;
+            }
+        }
+        logger::info("trace: container {:08X} '{}' (base {:08X}) {} -- changes {}, {} entr{}",
+            a_refr->GetFormID(), base ? base->GetName() : "?", base ? base->GetFormID() : 0u,
+            a_when, hasChanges ? "present" : "ABSENT", entries, entries == 1 ? "y" : "ies");
+
+        if (a_authored) {
+            if (auto* cont = a_refr->GetContainer()) {
+                cont->ForEachContainerObject([&](RE::ContainerObject& a_entry) {
+                    const bool leveled = a_entry.obj && a_entry.obj->As<RE::TESLevItem>();
+                    logger::info("trace:   authored {:>3} x '{}' [{:08X}] {}{}", a_entry.count,
+                        a_entry.obj ? a_entry.obj->GetName() : "?",
+                        a_entry.obj ? a_entry.obj->GetFormID() : 0u,
+                        a_entry.obj ? a_entry.obj->GetFormType() : RE::FormType::None,
+                        leveled ? "  (leveled: re-rolled by the multiplier)" : "");
+                    return RE::BSContainer::ForEachResult::kContinue;
+                });
+            }
+        }
+
+        if (!changes || !changes->entryList) {
+            return;
+        }
+        constexpr std::size_t kMaxLines = 200;
+        std::size_t           shown = 0;
+        for (const auto* entry : *changes->entryList) {
+            if (!entry || !entry->object) {
+                logger::info("trace:   (null entry)");
+                continue;
+            }
+            if (++shown > kMaxLines) {
+                logger::info("trace:   ... and {} more", entries - kMaxLines);
+                break;
+            }
+            std::size_t lists = 0;
+            if (entry->extraLists) {
+                for (const auto* xList : *entry->extraLists) {
+                    if (xList) {
+                        ++lists;
+                    }
+                }
+            }
+            logger::info("trace:   {:>4} x '{}' [{:08X}] {}  lists {}{}", entry->countDelta,
+                entry->object->GetName(), entry->object->GetFormID(),
+                entry->object->GetFormType(), lists, entry->IsQuestObject() ? "  QUEST" : "");
+        }
+    }
+
+    // The event half of the trace. Fires on whatever thread the engine moves
+    // an item on, so it does what QuestReward's sink already does there and no
+    // more: a FormID lookup and a name.
+    class TraceSink : public RE::BSTEventSink<RE::TESContainerChangedEvent>
+    {
+    public:
+        static TraceSink* GetSingleton()
+        {
+            static TraceSink singleton;
+            return &singleton;
+        }
+
+        RE::BSEventNotifyControl ProcessEvent(const RE::TESContainerChangedEvent*      a_event,
+            RE::BSTEventSource<RE::TESContainerChangedEvent>*) override
+        {
+            if (!a_event) {
+                return RE::BSEventNotifyControl::kContinue;
+            }
+            constexpr RE::FormID kPlayer = 0x14;
+            const bool fromNothing = a_event->oldContainer == 0 && a_event->newContainer != 0 &&
+                                     a_event->newContainer != kPlayer;
+            const bool toNothing = a_event->newContainer == 0 && a_event->oldContainer != 0 &&
+                                   a_event->oldContainer != kPlayer;
+            if (!fromNothing && !toNothing) {
+                return RE::BSEventNotifyControl::kContinue;
+            }
+
+            const auto contID = fromNothing ? a_event->newContainer : a_event->oldContainer;
+            auto*      item = RE::TESForm::LookupByID(a_event->baseObj);
+            auto*      cont = RE::TESForm::LookupByID(contID);
+            logger::info("trace: {}{} x '{}' [{:08X}] {} container {:08X} '{}'{}",
+                fromNothing ? "+" : "-", a_event->itemCount, item ? item->GetName() : "?",
+                a_event->baseObj, fromNothing ? "INTO" : "OUT OF", contID,
+                cont ? cont->GetName() : "?",
+                cont && cont->Is(RE::FormType::ActorCharacter) ? " (an actor)" : "");
+            return RE::BSEventNotifyControl::kContinue;
+        }
+    };
 
     // ★CONTAINERS ROLL WHEN OPENED, not when loaded.
     //
@@ -611,6 +823,10 @@ namespace
             if (!a_event || !a_event->opening || !g_enabled.load()) {
                 return RE::BSEventNotifyControl::kContinue;
             }
+            if (a_event->menuName == RE::BarterMenu::MENU_NAME) {
+                RollVendor();
+                return RE::BSEventNotifyControl::kContinue;
+            }
             if (a_event->menuName != RE::ContainerMenu::MENU_NAME) {
                 return RE::BSEventNotifyControl::kContinue;
             }
@@ -625,10 +841,90 @@ namespace
                     std::scoped_lock lock{ g_statsLock };
                     ++g_stats.containersOpened;
                 }
-                RollContainer(ref.get(), false);
+                const bool trace = Config::ContainerTrace();
+                if (trace) {
+                    TraceContainer(ref.get(), "as its menu opens, BEFORE this mod's pass", true);
+                }
+                RollContainer(ref.get(), false, true, kMaxItemsPerActor);
+                if (trace) {
+                    TraceContainer(ref.get(), "AFTER this mod's pass", false);
+                }
             }
 
             return RE::BSEventNotifyControl::kContinue;
+        }
+
+        // ★A VENDOR'S STOCK LIVES IN A CHEST THE PLAYER NEVER OPENS. The
+        // barter menu reads from the merchant container hung off the vendor's
+        // faction, in a cell nobody visits, so the container path above never
+        // sees it. This reaches in by that route on every barter and rolls the
+        // chest the same way -- minus the loot multiplier, and with a cap
+        // sized for a shop.
+        //
+        // ★ROLLED AGAIN AFTER EVERY RESTOCK, and the restock is read from the
+        // faction rather than guessed from a timer. The engine refills the
+        // chest on its own schedule -- two days for most vendors -- and stamps
+        // the day on the faction when it does. No reset event announces it,
+        // so the rolled-once mark alone would leave every restock plain. The
+        // day the chest was last rolled at is kept in the co-save beside the
+        // mark; a different day now means fresh stock, and the chest is rolled
+        // as if for the first time. Items that already carry an enchantment
+        // are skipped by the affix pass, so a same-day repeat costs nothing.
+        static void RollVendor()
+        {
+            if (!Config::VendorStockEnabled()) {
+                return;
+            }
+            const auto handle = RE::BarterMenu::GetTargetRefHandle();
+            const auto ref = RE::TESObjectREFR::LookupByHandle(handle);
+            auto*      vendor = ref ? ref->As<RE::Actor>() : nullptr;
+            if (!vendor) {
+                return;
+            }
+            auto* faction = vendor->GetVendorFaction();
+            auto* chest = faction ? faction->vendorData.merchantContainer : nullptr;
+            if (!chest) {
+                // A vendor selling from their own pockets. Those were rolled
+                // when the actor loaded, like any other NPC's gear.
+                return;
+            }
+
+            const auto chestID = chest->GetFormID();
+            const auto day = faction->vendorData.lastDayReset;
+            if (Persist::WasRolled(chestID) && Persist::VendorDay(chestID) == day) {
+                std::scoped_lock lock{ g_statsLock };
+                ++g_stats.skippedAlreadyRolled;
+                return;
+            }
+
+            logger::info("distribute: vendor {:08X} ({}) restocked on day {}; rolling chest {:08X}",
+                vendor->GetFormID(), vendor->GetName(), day, chestID);
+
+            // ★THE CHEST IS EMPTY UNTIL SOMETHING ASKS, and after a restock nothing
+            // has. The engine's reset throws the chest's inventory data away and
+            // leaves the fresh stock as a promise in the base record; the affix
+            // pass reads with no-init and so walked nothing. Measured: a restock
+            // roll moved "containers opened" and not "items examined", and the day
+            // was stamped over an inventory that did not exist yet -- which is why
+            // the first visit rolled and every restock came up plain. The
+            // container path never hit this because stocking initialises first;
+            // vendors skip stocking on purpose, so they initialise here.
+            //
+            // Not stamped on failure: a chest that would not initialise is a chest
+            // to try again on the next barter, not one to mark done.
+            if (!chest->GetInventoryChanges()) {
+                logger::warn("distribute: vendor chest {:08X} would not initialise; leaving it "
+                             "for the next barter",
+                    chestID);
+                return;
+            }
+            Persist::MarkRolled(chestID);
+            Persist::NoteVendorDay(chestID, day);
+            {
+                std::scoped_lock lock{ g_statsLock };
+                ++g_stats.containersOpened;
+            }
+            RollContainer(chest, true, false, kMaxItemsPerVendor);
         }
     };
 
@@ -752,6 +1048,11 @@ void Distribute::Install()
 
     holder->AddEventSink<RE::TESObjectLoadedEvent>(ActorLoadSink::GetSingleton());
     holder->AddEventSink<RE::TESResetEvent>(ResetSink::GetSingleton());
+    if (Config::ContainerTrace()) {
+        holder->AddEventSink<RE::TESContainerChangedEvent>(TraceSink::GetSingleton());
+        logger::warn("distribute: ContainerTrace is ON -- every container open is dumped to "
+                     "this log; turn it off in DiabloLoot.ini once the report is filed");
+    }
 
     if (auto* ui = RE::UI::GetSingleton()) {
         ui->AddEventSink<RE::MenuOpenCloseEvent>(ContainerMenuSink::GetSingleton());

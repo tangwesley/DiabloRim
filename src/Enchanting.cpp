@@ -65,38 +65,39 @@ namespace
         return type == Bench::kEnchanting || type == Bench::kEnchantingExperiment;
     }
 
-    // ★"MINE." READ OFF THE ENCHANTMENT ITSELF, NOT OUT OF THE TIER MAP.
+    // ★"MINE." THE ENCHANTMENT'S OWN SHAPE FIRST, THE CO-SAVE SECOND.
     //
     // The first version of this asked Persist::EnchTier -- the same handle
     // GridTint colours by -- and it was wrong, measured: of nine affixed items
     // in one save, the map knew two. The other seven had been rolled by earlier
     // builds, and every one of them stayed locked out of the enchanting table.
     // A record that can be absent for reasons this long after the fact cannot be
-    // what decides whether the player is allowed to enchant something.
+    // the ONLY thing deciding whether the player is allowed to enchant something.
     //
-    // What CAN decide it is the enchantment's own shape, and two facts together
-    // make it unmistakable:
+    // The structural half is required of every candidate: it is a created
+    // object, and every effect on it is one the affix table can produce. That
+    // alone is not enough -- our effects are ordinary vanilla ones anybody may
+    // use, and the player can craft a Fire Damage sword at this very table --
+    // so one of two further facts has to hold:
     //
     //   * costOverride zero WITH the override flag set. That pairing is what
     //     makes an affix never drain charge, it is stamped by Apply and by
-    //     nothing else, and the two items the map did know prove it survives a
-    //     save and reload intact.
-    //   * every effect on it is one the affix table can produce.
+    //     nothing else, and it survives a save and reload intact. Every item
+    //     rolled before finite weapon charge existed carries it, and so does
+    //     every item rolled with that setting off, which is the default.
+    //   * or the co-save says so. Finite-charge weapons carry a real cost, so
+    //     the pairing above cannot describe them; Apply records each one it
+    //     attaches in Persist::NoteAffixEnch instead, and the record is dropped
+    //     when the enchantment is destroyed. The structural check still stands
+    //     in front of it, so a stale id the engine reused cannot match alone.
     //
-    // Neither alone would do -- a mod could plausibly ship a free enchantment,
-    // and our effects are ordinary vanilla ones anybody may use -- but an
-    // enchantment that is both is ours.
-    //
-    // A merged enchantment is excluded by both halves, on purpose: it carries
-    // the player's cost and the player's effects. A return visit to the table
-    // leaves it alone, and vanilla's one-enchantment-per-item rule takes over.
+    // A merged enchantment is excluded by every route, on purpose: it carries
+    // the player's cost, the player's effects, and is never noted in the set.
+    // A return visit to the table leaves it alone, and vanilla's
+    // one-enchantment-per-item rule takes over.
     bool IsOurs(RE::EnchantmentItem* a_ench)
     {
         if (!a_ench || !a_ench->IsDynamicForm()) {
-            return false;
-        }
-        if (!a_ench->data.flags.all(RE::EnchantmentItem::EnchantmentFlag::kCostOverride) ||
-            a_ench->data.costOverride != 0) {
             return false;
         }
         if (a_ench->effects.empty()) {
@@ -108,7 +109,11 @@ namespace
                 return false;
             }
         }
-        return true;
+
+        const bool neverDrains =
+            a_ench->data.flags.all(RE::EnchantmentItem::EnchantmentFlag::kCostOverride) &&
+            a_ench->data.costOverride == 0;
+        return neverDrains || Persist::IsAffixEnch(a_ench->GetFormID());
     }
 
     // Is the crafting menu currently showing the ENCHANTING sub-menu? The same
@@ -147,7 +152,12 @@ namespace
     // second release of them is a crash. An enchantment effect with conditions
     // on it is rare, and losing one costs a wrong magnitude -- losing the heap
     // costs the save.
-    void AppendEffects(RE::BSTArray<RE::Effect>& a_out, const RE::MagicItem* a_from)
+    //
+    // a_extraCost is added to the FIRST effect copied. It is how a finite-charge
+    // affix set's per-hit cost rides into a merge whose total the engine will
+    // sum from the effects; see MergeEnchantments.
+    void AppendEffects(RE::BSTArray<RE::Effect>& a_out, const RE::MagicItem* a_from,
+        float a_extraCost = 0.0f)
     {
         if (!a_from) {
             return;
@@ -159,7 +169,8 @@ namespace
             auto& copy = a_out.emplace_back();
             copy.baseEffect = effect->baseEffect;
             copy.effectItem = effect->effectItem;
-            copy.cost = effect->cost;
+            copy.cost = effect->cost + a_extraCost;
+            a_extraCost = 0.0f;
         }
     }
 
@@ -170,6 +181,14 @@ namespace
     // their base enchantment -- the record the effect descriptions and the item
     // card read from. Our own effects were built at cost 0, so an
     // auto-calculating enchantment still totals to the player's price.
+    //
+    // ★UNLESS OURS HAD A PRICE OF ITS OWN. A finite-charge affix set carries a
+    // real per-hit cost in its costOverride, and a merge that dropped it would
+    // hand the player the affixes for free from then on -- the one thing the
+    // setting exists to stop. So the cost follows the affixes in: onto the
+    // override if the player's data reads one, onto our first effect's cost if
+    // the engine is going to sum the effects instead. Whichever the merged data
+    // says it will read, the number is there.
     RE::EnchantmentItem* MergeEnchantments(RE::EnchantmentItem* a_player,
         RE::EnchantmentItem* a_ours, bool a_isWeapon)
     {
@@ -178,11 +197,15 @@ namespace
             return nullptr;
         }
 
+        const auto ourCost = std::max(a_ours->data.costOverride, 0);
+        const bool playerOverrides =
+            a_player->data.flags.all(RE::EnchantmentItem::EnchantmentFlag::kCostOverride);
+
         RE::BSTArray<RE::Effect> effects;
         effects.reserve(
             static_cast<std::uint32_t>(a_player->effects.size() + a_ours->effects.size()));
         AppendEffects(effects, a_player);
-        AppendEffects(effects, a_ours);
+        AppendEffects(effects, a_ours, playerOverrides ? 0.0f : static_cast<float>(ourCost));
         if (effects.empty()) {
             return nullptr;
         }
@@ -206,6 +229,9 @@ namespace
         }
 
         merged->data = a_player->data;
+        if (playerOverrides) {
+            merged->data.costOverride += ourCost;
+        }
 
         // ★A MERGE MUST NEVER LOOK LIKE AN AFFIX. IsOurs reads costOverride zero
         // with the override flag set as "this one is mine". The player's cost is
@@ -213,26 +239,20 @@ namespace
         // ever came through at zero with that flag, the merged item would be
         // stripped and merged again on the next visit, and its effect list would
         // double every time. The same shape of bug as the temper suffix above,
-        // and made impossible the same way rather than argued about.
+        // and made impossible the same way rather than argued about. (The
+        // co-save route cannot reach a merge either: nothing ever notes one.)
         if (merged->data.costOverride == 0) {
             merged->data.flags.reset(RE::EnchantmentItem::EnchantmentFlag::kCostOverride);
         }
         return merged;
     }
 
+    // Lets go of an affix enchantment we have been holding detached. The
+    // records go with it only if nothing else still carries it -- Apply owns
+    // that rule, and the reason for it.
     void ReleaseOurs(RE::EnchantmentItem* a_ench, bool a_isWeapon)
     {
-        if (!a_ench) {
-            return;
-        }
-        // The id BEFORE the release, not after: the manager destroys the form on
-        // the last decrement and GetFormID() would then be a read through a dead
-        // pointer. Same ordering, and the same reason, as Apply::Release.
-        const auto id = a_ench->GetFormID();
-        if (auto* manager = RE::BGSCreatedObjectManager::GetSingleton()) {
-            manager->DestroyEnchantment(a_ench, a_isWeapon);
-        }
-        Persist::ForgetEnchTier(id);
+        Apply::ReleaseCreated(a_ench, a_isWeapon);
     }
 
     // -------------------------------------------------------------------------
@@ -657,11 +677,14 @@ namespace
         // enchantment, and we have been holding one for ours since the menu
         // opened. Both of those are now unheld and have to be told so -- and
         // the item is off, so the actor holds neither either.
+        //
+        // The merged enchantment gets the BAND and deliberately not the
+        // ownership record: it is coloured as the roll it came from, but it is
+        // the player's now, and a return visit to the table must leave it alone.
         if (auto* manager = RE::BGSCreatedObjectManager::GetSingleton()) {
             manager->DestroyEnchantment(playerEnch, a_stash.isWeapon);
-            manager->DestroyEnchantment(a_stash.ench, a_stash.isWeapon);
         }
-        Persist::ForgetEnchTier(ourID);
+        ReleaseOurs(a_stash.ench, a_stash.isWeapon);
         Persist::NoteEnchTier(mergedID, a_stash.band);
 
         // The name is the player's now -- they typed it at the table. Ours is

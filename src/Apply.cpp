@@ -6,6 +6,7 @@
 
 #include "Apply.h"
 
+#include "Config.h"
 #include "Persist.h"
 
 #include <algorithm>
@@ -113,6 +114,63 @@ namespace
     // The half of applying a roll that has nothing to do with where the result
     // is going to be hung: the created ENCH, with its never-drain signature.
     //
+    // The affix points of a roll that actually FIRE ON HIT. A wielder-side
+    // affix -- a weapon skill, a spell school's cost -- is delivered to the
+    // wielder by Wielder.cpp, not by the weapon, so it is not part of what a
+    // swing spends.
+    int OnHitPoints(const roll::RolledItem& a_rolled)
+    {
+        int points = 0;
+        for (const auto& rolled : a_rolled.affixes) {
+            if (!rolled.affix) {
+                continue;
+            }
+            const auto it = g_effects.find(rolled.affix->id);
+            const bool passive = it != g_effects.end() && Apply::IsWielderEffect(it->second);
+            if (!passive) {
+                points += std::max(rolled.points, 0);
+            }
+        }
+        return points;
+    }
+
+    // What one hit costs this roll, in charge. Zero -- the default, and the
+    // only answer for armour -- is "never drain".
+    //
+    // ★ONLY WHAT FIRES IS PAID FOR. A sword whose only affix is One-Handed
+    // has nothing to discharge on a hit -- the bonus lives on the wielder --
+    // so it carries no charge at all; and a sword with One-Handed beside Fire
+    // Damage pays for the fire alone.
+    std::int32_t PerHitCost(const roll::RolledItem& a_rolled, RE::TESBoundObject* a_object)
+    {
+        if (!Config::WeaponChargeEnabled() || !IsWeapon(a_object)) {
+            return 0;
+        }
+        const int onHit = OnHitPoints(a_rolled);
+        if (onHit <= 0) {
+            return 0;
+        }
+        // A red rolled at fifteen points drains faster than a one-point blue,
+        // the way a strong vanilla enchantment costs more per hit than a weak
+        // one. Floored at one: a cost of zero is the never-drain signature,
+        // and the two must not be confusable through a zero-cost INI line.
+        const auto cost = Config::WeaponChargeCost() +
+                          Config::WeaponChargeCostPerPoint() * onHit;
+        return static_cast<std::int32_t>(std::max(cost, 1));
+    }
+
+    // The maximum charge the instance starts with, by the band it rolled.
+    // Paired with PerHitCost: a charge with no cost is a meter that never
+    // moves, and a cost with no charge is a weapon that fires from empty --
+    // both look like bugs.
+    std::uint16_t StartingCharge(const roll::RolledItem& a_rolled, RE::TESBoundObject* a_object)
+    {
+        if (PerHitCost(a_rolled, a_object) <= 0) {
+            return 0;
+        }
+        return Config::WeaponChargeAmount(roll::BandOf(a_rolled.tier));
+    }
+
     // Split out because there are now TWO places to hang it -- an ExtraDataList
     // we were handed, and one the engine is about to make for us -- and the
     // rules about what may be enchanted at all must not be allowed to drift
@@ -181,13 +239,54 @@ namespace
             return nullptr;
         }
 
-        // Never drain. The zero is the number the engine reads and the flag is
+        // The per-hit cost. The number is what the engine reads and the flag is
         // what tells it to read the number instead of auto-calculating from the
-        // effects.
-        ench->data.costOverride = 0;
+        // effects -- and auto-calculation is not an option here even when the
+        // charge is meant to be finite, because the table rolls magnitudes far
+        // outside anything the enchanter's own formula was tuned for.
+        //
+        // Zero means never drain: charge is irrelevant to such an enchantment,
+        // it fires from empty, and that is what every affix has always been.
+        // Nonzero is the opt-in finite charge, weapons only -- armour
+        // enchantments are constant-effect and have no charge to spend.
+        //
+        // ★THE ENGINE DEDUPES IDENTICAL EFFECT SETS, so `ench` can be one an
+        // earlier roll already built -- and it keeps whatever cost that roll
+        // stamped. Two identical rolls with the setting flipped between them
+        // share one enchantment and one cost; the second roll's setting loses.
+        // Rare enough not to fight, and the alternative is a second enchantment
+        // for the same effects, which the manager exists to prevent.
+        ench->data.costOverride = PerHitCost(a_rolled, a_object);
         ench->data.flags.set(RE::EnchantmentItem::EnchantmentFlag::kCostOverride);
 
         return ench;
+    }
+
+    // Whether the manager still lists this enchantment after a release: false
+    // means the last holder let go and the form is gone. Only the POINTER is
+    // compared, never dereferenced -- when this returns false it is dangling.
+    //
+    // ★WHY THIS IS ASKED AT ALL. The manager dedupes identical effect sets, so
+    // one created enchantment can be carried by several items at once. Every
+    // holder that releases used to drop the map entries unconditionally, and
+    // the siblings kept an enchantment that the records no longer knew: the
+    // grid drew them uncoloured, and now that the enchanting table reads the
+    // affix set, they would stop being enchantable as well.
+    bool StillCreated(const RE::BGSCreatedObjectManager* a_manager,
+        const RE::EnchantmentItem* a_ench, bool a_isWeapon)
+    {
+        if (!a_manager) {
+            return false;
+        }
+        const auto& list = a_isWeapon ? a_manager->weaponEnchantments
+                                      : a_manager->armorEnchantments;
+        RE::BSSpinLockGuard guard{ a_manager->lock };
+        for (const auto& entry : list) {
+            if (entry.magicItem == a_ench) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ★A DIAGNOSTIC USED TO LIVE HERE AND IT CRASHED THE GAME. Removed, not
@@ -270,7 +369,99 @@ std::size_t Apply::GenericCount()
     return g_generic.size();
 }
 
-std::size_t Apply::ResolveEffects(const roll::AffixTable& a_table)
+namespace
+{
+    // The weapon types an effect's skill governs, or kNone when the effect is
+    // not a weapon-skill fortify at all.
+    //
+    // ★STAVES COUNT AS ONE-HANDED. No skill governs a staff, but it is held
+    // in one hand the way a sword is, and the decision was that a One-Handed
+    // bonus belongs on it. Two-Handed and Archery stay on their own weapons.
+    //
+    // Keyed on the ACTOR VALUE and not the affix id, so a Summermyst row or a
+    // renamed base row that reaches the same effect is narrowed the same way.
+    // The three modifier values per skill are the ones the survey found
+    // vanilla actually uses -- Fortify One-Handed keys off the power modifier,
+    // not the bare skill -- and the bare value is kept so a mod that does it
+    // the direct way is not missed.
+    std::uint32_t WeaponTypeOfSkill(const RE::EffectSetting* a_effect)
+    {
+        using AV = RE::ActorValue;
+        switch (a_effect->data.primaryAV) {
+        case AV::kOneHanded:
+        case AV::kOneHandedModifier:
+        case AV::kOneHandedPowerModifier:
+            return roll::kOneHanded | roll::kStaff;
+        case AV::kTwoHanded:
+        case AV::kTwoHandedModifier:
+        case AV::kTwoHandedPowerModifier:
+            return roll::kTwoHanded;
+        case AV::kArchery:
+        case AV::kMarksmanModifier:
+        case AV::kMarksmanPowerModifier:
+            return roll::kBow;
+        default:
+            return roll::kNone;
+        }
+    }
+
+    // A Fortify <School> -- "spells of this school cost less". Wielder-side
+    // like a weapon skill, and unlike one it names no weapon type: the CSV
+    // decides where it rolls, and the slots are left as written.
+    bool IsSchoolCostEffect(const RE::EffectSetting* a_effect)
+    {
+        using AV = RE::ActorValue;
+        switch (a_effect->data.primaryAV) {
+        case AV::kAlterationModifier:
+        case AV::kAlterationPowerModifier:
+        case AV::kConjurationModifier:
+        case AV::kConjurationPowerModifier:
+        case AV::kDestructionModifier:
+        case AV::kDestructionPowerModifier:
+        case AV::kIllusionModifier:
+        case AV::kIllusionPowerModifier:
+        case AV::kRestorationModifier:
+        case AV::kRestorationPowerModifier:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // ★A WEAPON-SKILL AFFIX ONLY ROLLS ON THE WEAPON ITS SKILL GOVERNS.
+    //
+    // The CSV can say it directly -- ONEHANDED instead of WEAPON -- but the
+    // guarantee cannot rest on every future edit of every table remembering
+    // to. So a row that lists the generic WEAPON bit and resolves to a
+    // Fortify One-Handed / Two-Handed / Archery effect has that bit swapped
+    // for the typed one here, where the effect is known. A Two-Handed row
+    // that already says TWOHANDED is left alone; a Two-Handed row that
+    // somehow says ONEHANDED is corrected and logged, because a greatsword
+    // carrying a One-Handed bonus is exactly the nonsense this exists to
+    // prevent. Apparel bits are untouched: skill fortifies belong on rings
+    // and armour, and this is about weapons only.
+    void NarrowWeaponSlots(roll::Affix& a_affix, const RE::EffectSetting* a_effect)
+    {
+        const auto typed = WeaponTypeOfSkill(a_effect);
+        if (typed == roll::kNone) {
+            return;
+        }
+        const auto before = a_affix.slots;
+        const bool onWeapons = (before & (roll::kWeapon | roll::kWeaponTypes)) != 0;
+        if (!onWeapons) {
+            return;
+        }
+        auto after = before & ~(roll::kWeapon | roll::kWeaponTypes);
+        after |= typed;
+        if (after != before) {
+            logger::info("affix \x27{}\x27 fortifies a weapon skill: weapon slots {} -> {}",
+                a_affix.id, roll::SlotsToString(before), roll::SlotsToString(after));
+            a_affix.slots = after;
+        }
+    }
+}
+
+std::size_t Apply::ResolveEffects(roll::AffixTable& a_table)
 {
     g_effects.clear();
     g_effectSet.clear();
@@ -279,7 +470,7 @@ std::size_t Apply::ResolveEffects(const roll::AffixTable& a_table)
     std::size_t missing = 0;
     std::size_t invisible = 0;
 
-    for (const auto& affix : a_table.Affixes()) {
+    for (auto& affix : a_table.Affixes()) {
         if (affix.mgef.empty()) {
             logger::warn("affix '{}' has no mgef token; it can never be applied", affix.id);
             ++missing;
@@ -327,6 +518,8 @@ std::size_t Apply::ResolveEffects(const roll::AffixTable& a_table)
             ++invisible;
         }
 
+        NarrowWeaponSlots(affix, effect);
+
         g_effects[affix.id] = effect;
         g_effectSet.insert(effect);
         ++resolved;
@@ -345,14 +538,39 @@ bool Apply::IsAffixEffect(const RE::EffectSetting* a_effect)
     return a_effect && g_effectSet.contains(a_effect);
 }
 
+bool Apply::IsWielderEffect(const RE::EffectSetting* a_effect)
+{
+    return a_effect && (WeaponTypeOfSkill(a_effect) != roll::kNone || IsSchoolCostEffect(a_effect));
+}
+
 std::uint32_t Apply::SlotsOf(RE::TESBoundObject* a_object)
 {
     if (!a_object) {
         return roll::kNone;
     }
 
-    if (IsWeapon(a_object)) {
-        return roll::kWeapon;
+    if (auto* weapon = a_object->As<RE::TESObjectWEAP>()) {
+        // The generic bit plus the type, so a Two-Handed row can single out
+        // greatswords the way a FEET row singles out boots. Staves have a
+        // type of their own; fists get the generic bit alone.
+        using Type = RE::WEAPON_TYPE;
+        switch (weapon->GetWeaponType()) {
+        case Type::kOneHandSword:
+        case Type::kOneHandDagger:
+        case Type::kOneHandAxe:
+        case Type::kOneHandMace:
+            return roll::kWeapon | roll::kOneHanded;
+        case Type::kTwoHandSword:
+        case Type::kTwoHandAxe:
+            return roll::kWeapon | roll::kTwoHanded;
+        case Type::kBow:
+        case Type::kCrossbow:
+            return roll::kWeapon | roll::kBow;
+        case Type::kStaff:
+            return roll::kWeapon | roll::kStaff;
+        default:
+            return roll::kWeapon;  // fists, and anything a mod invents
+        }
     }
 
     auto* armor = a_object->As<RE::TESObjectARMO>();
@@ -433,11 +651,13 @@ Apply::Applied Apply::ToItem(const roll::RolledItem& a_rolled, RE::TESBoundObjec
         return result;
     }
 
-    // ★Charge ZERO, deliberately. GetEnchantmentCharge's first branch is guarded
-    // by `charge != 0`, so zero makes it fall through: an unenchanted base draws
-    // no charge meter at all, which is the honest look for an affix that never
-    // drains. Measured: it still fires from empty.
-    a_xList->SetEnchantment(ench, 0, false);
+    // ★Charge ZERO by default, deliberately. GetEnchantmentCharge's first
+    // branch is guarded by `charge != 0`, so zero makes it fall through: an
+    // unenchanted base draws no charge meter at all, which is the honest look
+    // for an affix that never drains. Measured: it still fires from empty.
+    // With weapon charge on, this is a real number and the meter draws.
+    a_xList->SetEnchantment(ench, StartingCharge(a_rolled, a_object), false);
+    Persist::NoteAffixEnch(ench->GetFormID());
 
     result.enchantment = ench;
     // The base is always the item itself now that enchanted records are declined.
@@ -469,6 +689,15 @@ namespace
 bool Apply::InSurgery()
 {
     return t_surgeryDepth > 0;
+}
+
+bool Apply::CanDropFrom(RE::TESObjectREFR* a_refr)
+{
+    if (!a_refr) {
+        return false;
+    }
+    const auto* cell = a_refr->GetParentCell();
+    return cell && cell->IsAttached() && a_refr->Is3DLoaded();
 }
 
 Apply::Applied Apply::ToNewInstance(const roll::RolledItem& a_rolled,
@@ -504,6 +733,17 @@ Apply::Applied Apply::ToNewInstance(const roll::RolledItem& a_rolled,
         logger::warn("apply[{:08X}]: left unrolled -- {}", id, a_why);
     };
 
+    // ★NOWHERE TO DROP IT. RemoveItem with kDropping places a reference at the
+    // actor's position in the actor's cell; with no cell that walk goes through
+    // null, and it did: new game under Alternate Start, the player still
+    // "Prisoner" with ParentCell None, and a Roughspun Tunic to roll. Nothing
+    // has been touched yet, so this is a clean refusal. QuestReward asks
+    // CanDropFrom itself and skips such grants; this is the backstop.
+    if (!CanDropFrom(actor)) {
+        abandon("the actor is not in a loaded cell with 3D; nowhere to drop the item");
+        return result;
+    }
+
     // ★STEP 1: OUT INTO THE WORLD. RemoveItem with kDropping hands back a real
     // reference, and a reference carries an ExtraDataList of its own -- built by
     // the engine, at the moment of the drop, correctly. That list is the thing
@@ -515,6 +755,25 @@ Apply::Applied Apply::ToNewInstance(const roll::RolledItem& a_rolled,
     if (!dropped) {
         abandon("the drop produced no reference");
         return result;
+    }
+
+    // ★OURS, SAID SO BEFORE ANYTHING PICKS IT UP. A reference the engine creates
+    // in a cell inherits that cell's ownership, and the drop above goes through
+    // RemoveItem rather than the inventory menu's own drop, which is the path
+    // that stamps the player onto a dropped item. Inside a shop or a house that
+    // left the reward off-limits to the very player who had just been handed
+    // it: the pickup below counted as theft, and the armour came back marked
+    // stolen -- or lay on the floor under a "Steal" prompt (Leather Armor
+    // reward, 2026-09-05). The owner is the actor whose inventory it just left,
+    // which is exactly what the engine's own drop would have recorded.
+    if (auto* owner = actor->GetActorBase(); owner && dropped->GetOwner() != owner) {
+        if (dropped->IsOffLimits()) {
+            const auto* was = dropped->GetOwner();
+            logger::info("apply[{:08X}]: dropped reference {:08X} was off-limits (owner {:08X}); "
+                         "claiming it for the actor before the pickup",
+                id, dropped->GetFormID(), was ? was->GetFormID() : 0);
+        }
+        dropped->SetOwner(owner);
     }
 
     // ★STEP 1b: LOOK AT WHAT WE ACTUALLY GOT, because we did not choose it.
@@ -554,7 +813,8 @@ Apply::Applied Apply::ToNewInstance(const roll::RolledItem& a_rolled,
     // like something assembled by hand.
     logger::debug("apply[{:08X}]: 2 got reference {:08X}, enchanting it", id,
         dropped->GetFormID());
-    dropped->extraList.SetEnchantment(ench, 0, false);
+    dropped->extraList.SetEnchantment(ench, StartingCharge(a_rolled, a_object), false);
+    Persist::NoteAffixEnch(ench->GetFormID());
     result.name = NameInstance(a_rolled, a_object, &dropped->extraList);
 
     // ★STEP 3: BACK IN, BY THE ENGINE'S OWN PICKUP. PickUpObject moves the
@@ -567,6 +827,13 @@ Apply::Applied Apply::ToNewInstance(const roll::RolledItem& a_rolled,
     // simply take. That is the mildest failure mode any version of this has had.
     logger::debug("apply[{:08X}]: 3 handing it back", id);
     actor->PickUpObject(dropped.get(), 1, false, false);
+    if (!dropped->IsDeleted() && !dropped->IsDisabled()) {
+        // Not a crash, but the mildest failure mode has a face now: the affixed
+        // item is lying at the actor's feet instead of in the pack.
+        logger::warn("apply[{:08X}]: 3 the pickup left reference {:08X} in the world; the item "
+                     "is on the ground where the actor stands",
+            id, dropped->GetFormID());
+    }
 
     // ★THE THREE LINES ABOVE STAY, at debug, and they are not leftovers.
     //
@@ -607,19 +874,38 @@ void Apply::Release(RE::ExtraDataList* a_xList, bool a_isWeapon)
 
     // ★The half that RemoveByType does not do. Detaching alone leaves the
     // manager counting a reference nothing holds; the save records that, and the
-    // load throws -- measured twice, reproducibly, before this existed. The
-    // manager refcounts sharing, so this decrements and only actually destroys
-    // when the last holder lets go.
-    // Read the id BEFORE the manager is told to let go -- once the last holder
-    // releases, the form is gone and GetFormID() is a read through a dead
-    // pointer. The map entry must not outlive the enchantment either way: the
-    // engine reuses created-object ids, so a stale entry would eventually
-    // colour some unrelated item that inherited the number.
-    const auto enchID = ench->GetFormID();
+    // load throws -- measured twice, reproducibly, before this existed.
+    ReleaseCreated(ench, a_isWeapon);
+}
 
-    if (auto* manager = RE::BGSCreatedObjectManager::GetSingleton()) {
-        manager->DestroyEnchantment(ench, a_isWeapon);
+void Apply::ReleaseCreated(RE::EnchantmentItem* a_ench, bool a_isWeapon)
+{
+    if (!a_ench) {
+        return;
     }
 
+    // Read the id BEFORE the manager is told to let go -- once the last holder
+    // releases, the form is gone and GetFormID() is a read through a dead
+    // pointer.
+    const auto enchID = a_ench->GetFormID();
+
+    // The manager refcounts sharing, so this decrements and only actually
+    // destroys when the last holder lets go.
+    auto* manager = RE::BGSCreatedObjectManager::GetSingleton();
+    if (manager) {
+        manager->DestroyEnchantment(a_ench, a_isWeapon);
+    }
+
+    // ★THE RECORDS FOLLOW THE FORM, NOT THE HOLDER. While another item still
+    // carries this enchantment, its band and its ownership are still true and
+    // stay. Once nothing does, the entries must not outlive it: the engine
+    // reuses created-object ids, and a stale entry would eventually colour --
+    // or, worse, let the table strip -- some unrelated item that inherited the
+    // number.
+    if (StillCreated(manager, a_ench, a_isWeapon)) {
+        logger::debug("release: {:08X} is still carried by another item; records kept", enchID);
+        return;
+    }
     Persist::ForgetEnchTier(enchID);
+    Persist::ForgetAffixEnch(enchID);
 }
