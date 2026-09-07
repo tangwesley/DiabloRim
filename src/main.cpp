@@ -65,12 +65,20 @@ namespace
         // regenerable, and a patch survives every update to it.
         //
         // Alphabetical, so the order is predictable rather than filesystem luck.
+        //
+        // ★NEVER call path::string() on a name we did not write. This loop sees
+        // every file in the folder, and on a non-English Windows (crash report:
+        // Chinese-locale Windows 10) another mod's filename with a character outside
+        // the ANSI code page makes string() throw std::system_error ("No mapping
+        // for the Unicode character exists in the target multi-byte code page"),
+        // which took the whole game down at kDataLoaded. Compare on the native
+        // wide path and log via UTF-8, neither of which can fail.
         std::vector<std::filesystem::path> addons;
         std::error_code                    ec;
         for (const auto& entry :
             std::filesystem::directory_iterator{ "Data/SKSE/Plugins", ec }) {
-            const auto name = entry.path().filename().string();
-            if (name.rfind("DiabloLoot_affixes_", 0) == 0 && entry.path().extension() == ".csv") {
+            const std::wstring name = entry.path().filename().native();
+            if (name.rfind(L"DiabloLoot_affixes_", 0) == 0 && entry.path().extension() == L".csv") {
                 addons.push_back(entry.path());
             }
         }
@@ -78,8 +86,8 @@ namespace
 
         for (const auto& addon : addons) {
             std::vector<std::string> addonErrors;
-            g_affixes.MergeFile(addon.string(), addonErrors);
-            logger::info("  merged add-on {}", addon.filename().string());
+            g_affixes.MergeFile(addon, addonErrors);
+            logger::info("  merged add-on {}", roll::PathToUtf8(addon.filename()));
             for (const auto& err : addonErrors) {
                 logger::warn("    {}", err);
             }

@@ -128,17 +128,19 @@ namespace roll
         return rows;
     }
 
-    bool AffixTable::Load(const std::string& a_path, std::vector<std::string>& a_errors)
+    bool AffixTable::Load(const std::filesystem::path& a_path, std::vector<std::string>& a_errors)
     {
         _affixes.clear();
         return MergeFile(a_path, a_errors);
     }
 
-    bool AffixTable::MergeFile(const std::string& a_path, std::vector<std::string>& a_errors)
+    bool AffixTable::MergeFile(const std::filesystem::path& a_path, std::vector<std::string>& a_errors)
     {
+        // Opened by path, not by narrow string, so a non-ASCII install location
+        // works on any locale instead of failing to open (or worse, see PathToUtf8).
         std::ifstream file{ a_path };
         if (!file) {
-            a_errors.push_back("cannot open " + a_path);
+            a_errors.push_back("cannot open " + PathToUtf8(a_path));
             return false;
         }
         std::stringstream buffer;

@@ -691,6 +691,15 @@ bool Apply::InSurgery()
     return t_surgeryDepth > 0;
 }
 
+bool Apply::CanDropFrom(RE::TESObjectREFR* a_refr)
+{
+    if (!a_refr) {
+        return false;
+    }
+    const auto* cell = a_refr->GetParentCell();
+    return cell && cell->IsAttached() && a_refr->Is3DLoaded();
+}
+
 Apply::Applied Apply::ToNewInstance(const roll::RolledItem& a_rolled,
     RE::TESBoundObject* a_object, RE::TESObjectREFR* a_refr)
 {
@@ -724,6 +733,17 @@ Apply::Applied Apply::ToNewInstance(const roll::RolledItem& a_rolled,
         logger::warn("apply[{:08X}]: left unrolled -- {}", id, a_why);
     };
 
+    // ★NOWHERE TO DROP IT. RemoveItem with kDropping places a reference at the
+    // actor's position in the actor's cell; with no cell that walk goes through
+    // null, and it did: new game under Alternate Start, the player still
+    // "Prisoner" with ParentCell None, and a Roughspun Tunic to roll. Nothing
+    // has been touched yet, so this is a clean refusal. QuestReward asks
+    // CanDropFrom itself and skips such grants; this is the backstop.
+    if (!CanDropFrom(actor)) {
+        abandon("the actor is not in a loaded cell with 3D; nowhere to drop the item");
+        return result;
+    }
+
     // ★STEP 1: OUT INTO THE WORLD. RemoveItem with kDropping hands back a real
     // reference, and a reference carries an ExtraDataList of its own -- built by
     // the engine, at the moment of the drop, correctly. That list is the thing
@@ -735,6 +755,25 @@ Apply::Applied Apply::ToNewInstance(const roll::RolledItem& a_rolled,
     if (!dropped) {
         abandon("the drop produced no reference");
         return result;
+    }
+
+    // ★OURS, SAID SO BEFORE ANYTHING PICKS IT UP. A reference the engine creates
+    // in a cell inherits that cell's ownership, and the drop above goes through
+    // RemoveItem rather than the inventory menu's own drop, which is the path
+    // that stamps the player onto a dropped item. Inside a shop or a house that
+    // left the reward off-limits to the very player who had just been handed
+    // it: the pickup below counted as theft, and the armour came back marked
+    // stolen -- or lay on the floor under a "Steal" prompt (Leather Armor
+    // reward, 2026-09-05). The owner is the actor whose inventory it just left,
+    // which is exactly what the engine's own drop would have recorded.
+    if (auto* owner = actor->GetActorBase(); owner && dropped->GetOwner() != owner) {
+        if (dropped->IsOffLimits()) {
+            const auto* was = dropped->GetOwner();
+            logger::info("apply[{:08X}]: dropped reference {:08X} was off-limits (owner {:08X}); "
+                         "claiming it for the actor before the pickup",
+                id, dropped->GetFormID(), was ? was->GetFormID() : 0);
+        }
+        dropped->SetOwner(owner);
     }
 
     // ★STEP 1b: LOOK AT WHAT WE ACTUALLY GOT, because we did not choose it.
@@ -788,6 +827,13 @@ Apply::Applied Apply::ToNewInstance(const roll::RolledItem& a_rolled,
     // simply take. That is the mildest failure mode any version of this has had.
     logger::debug("apply[{:08X}]: 3 handing it back", id);
     actor->PickUpObject(dropped.get(), 1, false, false);
+    if (!dropped->IsDeleted() && !dropped->IsDisabled()) {
+        // Not a crash, but the mildest failure mode has a face now: the affixed
+        // item is lying at the actor's feet instead of in the pack.
+        logger::warn("apply[{:08X}]: 3 the pickup left reference {:08X} in the world; the item "
+                     "is on the ground where the actor stands",
+            id, dropped->GetFormID());
+    }
 
     // ★THE THREE LINES ABOVE STAY, at debug, and they are not leftovers.
     //

@@ -149,6 +149,18 @@ namespace Apply
     Applied ToNewInstance(const roll::RolledItem& a_rolled, RE::TESBoundObject* a_object,
         RE::TESObjectREFR* a_refr);
 
+    // Whether a_refr is somewhere a drop can land: in an attached cell, with
+    // its 3D loaded. ToNewInstance refuses otherwise; a caller should ask this
+    // first and decide what to do with the item -- QuestReward skips it.
+    //
+    // ★A NEW GAME IS THE CASE. Alternate Start grants the starting clothes
+    // while the player is still nowhere -- no parent cell, no 3D -- and the
+    // reward drain fired half a second later, dropping a Roughspun Tunic into a
+    // cell that did not exist. The engine dereferenced null and the game died
+    // in the player's very first minute (crash log 2026-09-05 17:57). Such
+    // grants are now refused at the sink; this is the backstop behind that.
+    [[nodiscard]] bool CanDropFrom(RE::TESObjectREFR* a_refr);
+
     // Whether ToNewInstance is mid-surgery ON THIS THREAD.
     //
     // ★THE DROP AND THE PICKUP ARE INVENTORY CHANGES LIKE ANY OTHER, and the

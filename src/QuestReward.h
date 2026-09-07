@@ -109,6 +109,7 @@ namespace QuestReward
         std::uint64_t rolledWhite{ 0 };
         std::uint64_t affixed{ 0 };
         std::uint64_t attachFailed{ 0 }; // the engine declined to make a list
+        std::uint64_t notInWorld{ 0 };   // granted or settled while the player had no cell; see the cpp
     };
 
     [[nodiscard]] Stats CurrentStats();

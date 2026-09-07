@@ -15,6 +15,7 @@
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <random>
 #include <string>
 #include <string_view>
@@ -22,6 +23,18 @@
 
 namespace roll
 {
+    // ----------------------------------------------------------------- paths
+    // A path rendered for a log line or an error message. Always UTF-8, never
+    // path::string(): that one converts through the ANSI code page and THROWS
+    // on any character the page cannot hold, which on a non-English Windows is
+    // a routine filename, not an edge case. Nothing that merely wants to print
+    // a name should be able to take the process down.
+    [[nodiscard]] inline std::string PathToUtf8(const std::filesystem::path& a_path)
+    {
+        const auto u8 = a_path.u8string();
+        return std::string(u8.begin(), u8.end());
+    }
+
     // ---------------------------------------------------------------- slots
     // A bit per place an affix can live. An item presents the mask it occupies
     // and an affix presents the mask it allows; they must intersect.
@@ -101,14 +114,14 @@ namespace roll
         // malformed row. Returns false only when nothing usable loaded --
         // individual bad rows are skipped and reported, never fatal, because a
         // user editing a balance CSV should get a complaint rather than a crash.
-        bool Load(const std::string& a_path, std::vector<std::string>& a_errors);
+        bool Load(const std::filesystem::path& a_path, std::vector<std::string>& a_errors);
         bool LoadFromString(std::string_view a_csv, std::vector<std::string>& a_errors);
 
         // Adds to what is already loaded. An affixId that already exists has its
         // tiers REPLACED, so an add-on can rebalance a base affix as well as
         // introduce new ones. This is how a "Summermyst affixes" patch ships as a
         // drop-in file instead of a fork of the base table.
-        bool MergeFile(const std::string& a_path, std::vector<std::string>& a_errors);
+        bool MergeFile(const std::filesystem::path& a_path, std::vector<std::string>& a_errors);
         bool Merge(std::string_view a_csv, std::vector<std::string>& a_errors);
 
         [[nodiscard]] const std::vector<Affix>& Affixes() const noexcept { return _affixes; }

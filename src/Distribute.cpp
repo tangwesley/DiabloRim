@@ -57,6 +57,41 @@ namespace
     void RollActor(RE::Actor* a_actor, bool a_force);
     void RollContainer(RE::TESObjectREFR* a_refr, bool a_force, bool a_stock, std::size_t a_cap);
 
+    // ★OURS, not InventoryEntryData::IsEnchanted. CommonLibSSE-NG's version
+    // walks extraLists without a null check on each list:
+    //
+    //     for (const auto& xList : *extraLists)
+    //         xList->GetByType<ExtraEnchantment>()   // no `if (xList)`
+    //
+    // and the engine does hand out entries whose list holds a null pointer. On
+    // one such Stormcloak soldier in Dragonsreach that was a read of
+    // ExtraDataList::_lock at address 0x10 from the distribute task (crash log
+    // 2026-09-07). IsQuestObject and IsFavorited guard; only IsEnchanted forgot.
+    bool EntryIsEnchanted(const RE::InventoryEntryData* a_entry)
+    {
+        if (!a_entry) {
+            return false;
+        }
+        if (a_entry->object) {
+            const auto* enchantable = a_entry->object->As<RE::TESEnchantableForm>();
+            if (enchantable && enchantable->formEnchanting) {
+                return true;
+            }
+        }
+        if (a_entry->extraLists) {
+            for (const auto* xList : *a_entry->extraLists) {
+                if (!xList) {
+                    continue;
+                }
+                const auto* xEnch = xList->GetByType<RE::ExtraEnchantment>();
+                if (xEnch && xEnch->enchantment) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     struct Candidate
     {
         RE::TESBoundObject* object{ nullptr };
@@ -93,9 +128,10 @@ namespace
 
             // ★The entry's own guards, which are better than reading extra data
             // by hand: IsQuestObject covers quest items more thoroughly than a
-            // kAliasInstanceArray probe, and IsEnchanted catches an instance
-            // enchantment as well as the record's EITM.
-            if (entry->IsQuestObject() || entry->IsFavorited() || entry->IsEnchanted()) {
+            // kAliasInstanceArray probe, and EntryIsEnchanted catches an instance
+            // enchantment as well as the record's EITM (see it above for why
+            // it is not the CommonLib one).
+            if (entry->IsQuestObject() || entry->IsFavorited() || EntryIsEnchanted(entry)) {
                 continue;
             }
 
@@ -740,6 +776,25 @@ namespace
 
             logger::info("distribute: vendor {:08X} ({}) restocked on day {}; rolling chest {:08X}",
                 vendor->GetFormID(), vendor->GetName(), day, chestID);
+
+            // ★THE CHEST IS EMPTY UNTIL SOMETHING ASKS, and after a restock nothing
+            // has. The engine's reset throws the chest's inventory data away and
+            // leaves the fresh stock as a promise in the base record; the affix
+            // pass reads with no-init and so walked nothing. Measured: a restock
+            // roll moved "containers opened" and not "items examined", and the day
+            // was stamped over an inventory that did not exist yet -- which is why
+            // the first visit rolled and every restock came up plain. The
+            // container path never hit this because stocking initialises first;
+            // vendors skip stocking on purpose, so they initialise here.
+            //
+            // Not stamped on failure: a chest that would not initialise is a chest
+            // to try again on the next barter, not one to mark done.
+            if (!chest->GetInventoryChanges()) {
+                logger::warn("distribute: vendor chest {:08X} would not initialise; leaving it "
+                             "for the next barter",
+                    chestID);
+                return;
+            }
             Persist::MarkRolled(chestID);
             Persist::NoteVendorDay(chestID, day);
             {
