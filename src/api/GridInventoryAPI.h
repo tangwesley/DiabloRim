@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 // =============================================================================
 //  Grid Inventory -- extension ABI v1
 // =============================================================================
@@ -24,9 +24,10 @@
 //      AND the allocator, and any version drift between the two plugins would
 //      be an undiagnosable CTD.
 //
-//  THREADING -- GetOverlay / GetTooltipLines / OfferDrop / GetTier / GetLines are
-//  all called from the host's render thread inside an active ImGui frame. Do not
-//  block, allocate, or call a game API that can open or close a menu.
+//  THREADING -- GetOverlay / GetTooltipLines / OfferDrop / GetTier / GetLines /
+//  GetMultiplier are all called from the host's render thread inside an active
+//  ImGui frame. Do not block, allocate, or call a game API that can open or
+//  close a menu.
 //
 //  HANDSHAKE (SKSE messaging, both plugins register a listener in
 //  SKSEPluginLoad so ordering does not matter):
@@ -88,6 +89,58 @@ namespace GridInvAPI
     inline constexpr std::uint32_t kMsgCostumeState     = 0x47494353;  // 'GICS'
     inline constexpr std::uint32_t kMsgRegisterTinter   = 0x47495443;  // 'GITC'
     inline constexpr std::uint32_t kMsgRegisterAnnot    = 0x4749414E;  // 'GIAN'
+    inline constexpr std::uint32_t kMsgRegisterPricer   = 0x47495052;  // 'GIPR'
+
+    // ★(1.5.x) SUPPRESS THE GRID'S OWN WINDOW while yours sits over it.
+    //
+    // Sending UI_MESSAGE_TYPE::kHide to "GridInventoryMenu" does the same
+    // thing and needs no header -- that is the standard courtesy and it is
+    // answered. This message exists for the case where the intent should be
+    // unambiguous: the engine also sends kHide, so a host that wants to know
+    // the request came from a MOD rather than from the game reads this one.
+    //
+    // The grid stays OPEN throughout: its board, the item on the cursor and
+    // every sub-window survive, and IsMenuOpen() keeps answering true --
+    // it reports the SESSION, not whether the board is on screen, so it does
+    // not move when you suppress. (1.5.1 answered liveness there by mistake,
+    // which told a client its own suppression was the player closing the
+    // inventory; fixed in 1.5.2.)
+    //
+    // ★★YOU OWN THE HOLD. This message is not the same as kHide in one way
+    // that matters: the host's safety net recovers a kHide by watching the
+    // MENU STACK, and your window may not be on it at all -- an overlay
+    // drawn outside the menu system is invisible to any such test, and the
+    // net used to revoke those suppressions about a fifth of a second in.
+    // A hold taken with this message is not second-guessed that way, and the
+    // host's own kShow will not break it either.
+    //
+    // ★★AND THERE IS NO TIMER BEHIND IT. The hold does not expire. What that
+    // buys costs one obligation, and it is absolute:
+    //
+    //   RELEASE IT (suppress = 0) ON EVERY PATH THAT CLOSES YOUR WINDOW.
+    //
+    // Not just the normal one. The cancel, the error return, the hotkey that
+    // closes it, the load that happens while it is up -- every exit. While
+    // you hold this the player cannot see the inventory and cannot reach it,
+    // so a path that forgets is a soft lock, and no timer is coming: a build
+    // of this host did carry a ten-minute backstop and it was removed,
+    // because nobody sits in front of a frozen game for ten minutes. They
+    // kill the process at two.
+    //
+    // The only other things that take the hold back are the ones that end the
+    // session your window was living over anyway: our own close, a save load,
+    // and a new game.
+    //
+    // ★SEND IT WHILE THE INVENTORY IS OPEN. There is nothing to step aside
+    // from otherwise, and a hold banked against a session that has not started
+    // would surface at the next open as a board that never draws. So one taken
+    // with the inventory closed is refused, with a line in our log saying so.
+    // Check IsMenuOpen() first, or just send it when your window opens over us.
+    //
+    // ★DISPATCH FROM ANY THREAD. It is parked and applied on the next game
+    // frame, so the grid goes quiet a frame after you ask rather than inside
+    // your Dispatch call. Nothing here touches the engine on your thread.
+    inline constexpr std::uint32_t kMsgSuppressUI      = 0x47495355;  // 'GISU'
 
     // ---- limits -----------------------------------------------------------
 
@@ -214,8 +267,14 @@ namespace GridInvAPI
         // any thread; the host only sets a flag.
         void (*RequestRebuild)();
 
-        // True while the grid menu is open. A provider that mutates inventory
-        // should check this before doing anything the user could be looking at.
+        // True while the grid MENU SESSION is open: its board, the item on the
+        // cursor and every sub-window are alive. Suppression (kMsgSuppressUI)
+        // does NOT move this -- a hidden grid is still an open one, and a
+        // client reading its own suppression back as a close is what this
+        // answering liveness caused in 1.5.1. A provider that mutates
+        // inventory should check this first; the session is what makes a
+        // mutation dangerous, not whether pixels are on screen.
+        // Main/game thread only (reads RE::UI's menu map, which is unlocked).
         bool (*IsMenuOpen)();
 
         // Grant-time tile snapshot: how many grid cells `base` occupies RIGHT NOW
@@ -276,6 +335,14 @@ namespace GridInvAPI
     //  shield and a quiver -- a costume leaves all of those alone, because they
     //  are held rather than worn. Only the pieces that actually reach the body
     //  are listed here, so every entry is something the player is now seen in.
+    struct SuppressUI
+    {
+        std::uint32_t structSize;   // = sizeof(SuppressUI)
+        std::uint32_t abiVersion;   // = kABIVersion
+        std::uint32_t suppress;     // 1 = hide the grid, 0 = give it back
+    };
+    static_assert(sizeof(SuppressUI) == 12, "SuppressUI is part of the ABI");
+
     struct CostumeState
     {
         std::uint32_t  structSize;   // = sizeof(CostumeState)
@@ -421,4 +488,67 @@ namespace GridInvAPI
                                   TooltipLine* out, std::uint32_t capacity);
     };
     static_assert(sizeof(Annotator) == 32, "Annotator is part of the ABI");
+
+    // ---- provider -> host: BARTER PRICE ------------------------------------
+
+    // ★★A FOURTH TABLE, AND THE REASON IS THE HOST'S OWN SHOP WINDOW.
+    //
+    // The host replaces the vanilla barter menu. Its shelf prices a unit by
+    // calling the engine's item-value routine ITSELF, from this DLL, through an
+    // indirect call -- so an extension that patches that routine's call sites
+    // inside SkyrimSE.exe (the only kind of patch that needs no disassembler)
+    // never sees the host's call, and the vanilla BarterMenu it would read the
+    // buy/sell direction from is never open while the host's shop is. Every
+    // price the player sees in that shop is therefore the plain engine value,
+    // whatever the extension does to the vanilla menus. Measured: a purple
+    // sword sold for the same gold with the extension's sell scaling on and
+    // off, because neither setting was ever consulted.
+    //
+    // So the host asks. Once per priced unit it hands over the base form, the
+    // unit's own list (the same handle Tinter and Annotator get, for the same
+    // reason: it is the only name one unit has) and WHICH SIDE of the counter
+    // the unit is on, and the pricer answers with a multiplier on the unit's
+    // engine value. The host then applies its barter formula -- speech skill,
+    // perks, the merchant's purse -- to the scaled value exactly as it would
+    // to the plain one, so a pricer changes what a thing is WORTH and nothing
+    // else about how the shop works.
+    //
+    // Own slot, own message, own handshake, kABIVersion untouched -- rule 2,
+    // for the third time. Register any combination of the four.
+
+    enum PriceSide : std::uint32_t
+    {
+        kPriceBuy  = 1,   // the merchant's shelf: what the PLAYER pays
+        kPriceSell = 2    // the player's own item: what the MERCHANT pays
+    };
+
+    struct Pricer
+    {
+        std::uint32_t structSize;   // = sizeof(Pricer)
+        std::uint32_t abiVersion;   // = kABIVersion
+        const char*   name;         // static string, diagnostics only
+        void*         self;         // opaque; handed back as the first argument
+
+        // The multiplier on ONE unit's engine value, before the barter formula.
+        //
+        //   base  the TESBoundObject FormID
+        //   xl    the RE::ExtraDataList* of THIS sub-stack, or nullptr when the
+        //         unit has none of its own. Read-only, borrowed for the call.
+        //   side  a PriceSide: which way the gold is about to move.
+        //
+        // Return 1.0 for "no opinion". Anything <= 0, NaN or infinite is read
+        // as 1.0 by the host rather than refused, so a pricer built against a
+        // later ABI degrades to plain prices instead of vanishing. A float is a
+        // fundamental type and crosses this boundary in XMM0 under the x64
+        // calling convention, which both sides share by definition -- rule 1
+        // forbids library types, not the language's own.
+        //
+        // NOT the per-frame hot path: once per shelf cell when the shop window
+        // is (re)collected, once per tooltip, and once per sale. It still runs
+        // inside the host's ImGui frame on the render thread, so do not block,
+        // do not open or close a menu, and never call ImGui.
+        float (*GetMultiplier)(void* self, std::uint32_t base, const void* xl,
+                               std::uint32_t side);
+    };
+    static_assert(sizeof(Pricer) == 32, "Pricer is part of the ABI");
 }

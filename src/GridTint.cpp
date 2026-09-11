@@ -6,6 +6,7 @@
 
 #include "GridTint.h"
 
+#include "Config.h"
 #include "Persist.h"
 #include "api/GridInventoryAPI.h"
 #include "roll/Roll.h"
@@ -154,6 +155,34 @@ namespace
         return 1;
     }
 
+    // ★WHAT A ROLLED ITEM IS WORTH AT THE HOST'S COUNTER -- the same rule
+    // Pricing.cpp applies to the vanilla menus, answered over the ABI because
+    // the host's shop never goes near the function that hook patches: it
+    // calls the engine's value routine itself, from its own DLL, and the
+    // vanilla BarterMenu the hook reads direction from is hidden while the
+    // host's window is up. Without this table a purple sword sold in the grid
+    // for its plain value with SellPricesScaled on OR off, since neither
+    // setting was ever consulted.
+    //
+    // NOT the hot path: once per shelf cell at collect, once per tooltip, once
+    // per sale. Still one extra-data walk and one hash lookup, and two reads
+    // of settings that were loaded once at startup.
+    float GetMultiplier(void*, std::uint32_t, const void* a_xl, std::uint32_t a_side)
+    {
+        const std::uint8_t band = BandOf(a_xl);
+        if (band == 0) {
+            return 1.0f;   // not ours, or white: the host prices it as it always did
+        }
+        // The selling side is scaled only when the INI says so -- the same
+        // default Pricing.h explains: what a merchant asks goes up, what a
+        // merchant pays does not, unless the player chose otherwise.
+        if (a_side == GridInvAPI::kPriceSell && !Config::SellPricesScaled()) {
+            return 1.0f;
+        }
+        const float mult = Config::PriceMult(static_cast<roll::Band>(band));
+        return mult > 0.0f ? mult : 1.0f;
+    }
+
     std::uint32_t GetPalette(void*, std::uint32_t* a_out, std::uint32_t a_capacity)
     {
         if (!a_out) {
@@ -213,15 +242,34 @@ namespace
             GridInvAPI::kMsgRegisterAnnot, &annot, sizeof(annot),
             GridInvAPI::kHostPluginName);
 
+        // ★A THIRD TABLE, FOR THE COUNTER. The host's shop window is the one
+        // place a price is shown that the call-site hook in Pricing.cpp cannot
+        // reach (see GetMultiplier above), so the host asks us instead. Same
+        // slot discipline as the two before it: its own message, and a host
+        // built before it existed simply never sends for it -- the prices
+        // there stay plain, as they were, and nothing else is lost.
+        static GridInvAPI::Pricer pricer{
+            sizeof(GridInvAPI::Pricer),
+            GridInvAPI::kABIVersion,
+            "DiabloInSkyrim",
+            nullptr,   // self: we keep no per-instance state
+            &GetMultiplier,
+        };
+
+        const bool sentPrice = SKSE::GetMessagingInterface()->Dispatch(
+            GridInvAPI::kMsgRegisterPricer, &pricer, sizeof(pricer),
+            GridInvAPI::kHostPluginName);
+
         // Dispatch returning true means the message was DELIVERED, not that the
         // host accepted the table -- the version gate and the null-pointer check
         // both run inside its handler and refuse invisibly from here. The host
         // logs its own verdict; this line only proves we spoke.
         g_registered.store(sent);
-        logger::info("grid tint: offered {} band(s) to {} -- tint {}, tooltip {}",
+        logger::info("grid tint: offered {} band(s) to {} -- tint {}, tooltip {}, price {}",
             std::size(kPalette), GridInvAPI::kHostPluginName,
             sent ? "delivered" : "not delivered (is Grid Inventory installed?)",
-            sentAnnot ? "delivered" : "not delivered");
+            sentAnnot ? "delivered" : "not delivered",
+            sentPrice ? "delivered" : "not delivered");
     }
 
     // Takes EVERY sender. Only Grid Inventory's own 4CC types may be acted on
