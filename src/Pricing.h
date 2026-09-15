@@ -27,6 +27,14 @@
 //  vendor's goods, a value is a buying price. Anything else -- the player's
 //  side of the barter, the inventory card, a script asking -- is the selling
 //  side, scaled only when the INI says so.
+//
+//  ★WHAT THIS CANNOT REACH: A SHOP DRAWN BY ANOTHER DLL. Grid Inventory
+//  replaces the barter menu with its own window, prices each unit by calling
+//  GetValue from ITS module through an indirect call -- no E8 in the game's
+//  code segment points there -- and hides the vanilla BarterMenu the direction
+//  test reads. Prices in that window are served over the Grid Inventory ABI
+//  instead (the Pricer table in GridTint.cpp), by the same rule and the same
+//  INI settings. The two paths never both fire for one price.
 // =============================================================================
 #pragma once
 
