@@ -8,6 +8,7 @@
 
 #include "Config.h"
 #include "Persist.h"
+#include "Sockets.h"
 #include "api/GridInventoryAPI.h"
 #include "roll/Roll.h"
 
@@ -21,6 +22,10 @@ namespace
 {
     std::atomic<bool> g_registered{ false };
     std::atomic<bool> g_offered{ false };
+
+    // The host's service table, kept from its announcement: it is valid for
+    // the life of the process. Null until then, and forever without the host.
+    std::atomic<const GridInvAPI::HostServices*> g_services{ nullptr };
 
     // ImU32 on the host's build is 0xAABBGGRR -- red in the LOW byte. Written
     // as a function so the constants below can be read in the order a colour is
@@ -183,6 +188,82 @@ namespace
         return mult > 0.0f ? mult : 1.0f;
     }
 
+    // ★ANOTHER MOD'S SOCKETS, IN THE HOST'S WELLS. Socketing's row for the
+    // unit, turned into the badges the grid already knows how to draw: a
+    // filled socket names the shard's own item form (the host falls back to
+    // capturing that form's model if the picture below will not load), an
+    // empty one is a bare well -- exactly what the circle alone should say.
+    //
+    // HOT PATH, the same as GetTier: the host's partner window and doll ask
+    // per cell per frame. Sockets::RowOf is one extra-data read and one hash
+    // lookup once a unit has been seen.
+    bool GetSockets(void*, std::uint32_t a_base, const void* a_xl, GridInvAPI::Overlay* a_out)
+    {
+        if (!a_out) {
+            return false;
+        }
+        const auto* row = Sockets::RowOf(a_base, static_cast<const RE::ExtraDataList*>(a_xl));
+        if (!row) {
+            return false;
+        }
+        const auto n = (std::min)(static_cast<std::uint32_t>(row->count), GridInvAPI::kMaxBadges);
+        a_out->count = static_cast<std::uint8_t>(n);
+        for (std::uint32_t i = 0; i < n; ++i) {
+            auto& b = a_out->badges[i];
+            if (row->shard[i] != 0) {
+                b.state = GridInvAPI::kBadgeFilled;
+                b.iconId = row->shard[i];
+                // Socketing's own tint for the stone, on the rim. ★The Badge
+                // takes 0xRRGGBBAA -- NOT the palette's ImU32 order above;
+                // the host converts this one itself (see Badges.cpp).
+                b.tintRGBA = (row->rgb[i] << 8) | 0xFFu;
+            } else {
+                b.state = GridInvAPI::kBadgeEmpty;
+                b.iconId = 0;
+                b.tintRGBA = 0;
+            }
+        }
+        return n > 0;
+    }
+
+    // The picture of a shard or gem. NOT the hot path: the host asks once per
+    // form per session and keeps the texture.
+    bool GetArt(void*, std::uint32_t a_iconId, char* a_out, std::uint32_t a_capacity)
+    {
+        return Sockets::ArtOf(a_iconId, a_out, a_capacity);
+    }
+
+    // ★WHAT THE SOCKETS DO, for the tooltip. Socketing's effects ride a
+    // created enchantment whose effects are hidden from every item card, so
+    // the grid's own enchantment lines say nothing for a socketed unit; these
+    // are drawn in their place. Socketing words them itself, already in the
+    // TooltipLine layout and the grid's ImU32 colour order -- copied field by
+    // field all the same, so the two headers only have to agree on meaning.
+    //
+    // Once per frame while the unit's tooltip is up; Sockets::LinesOf keeps
+    // what Socketing said, so this is a hash lookup and a copy.
+    std::uint32_t GetSocketLines(void*, std::uint32_t a_base, const void* a_xl,
+        GridInvAPI::TooltipLine* a_out, std::uint32_t a_capacity)
+    {
+        if (!a_out || a_capacity == 0) {
+            return 0;
+        }
+        const auto lines = Sockets::LinesOf(a_base, static_cast<const RE::ExtraDataList*>(a_xl));
+        const auto n = static_cast<std::uint32_t>(
+            (std::min)(lines.size(), static_cast<std::size_t>(a_capacity)));
+        for (std::uint32_t i = 0; i < n; ++i) {
+            const auto& src = lines[i];
+            auto&       dst = a_out[i];
+            static_assert(sizeof(dst.text) == sizeof(src.text), "both are 128-byte lines");
+            std::memcpy(dst.text, src.text, sizeof(dst.text));
+            dst.text[sizeof(dst.text) - 1] = '\0';   // never hand on an unterminated line
+            dst.rgba = src.rgba;
+            dst.indent = src.indent;
+            dst.separatorBefore = src.separatorBefore;
+        }
+        return n;
+    }
+
     std::uint32_t GetPalette(void*, std::uint32_t* a_out, std::uint32_t a_capacity)
     {
         if (!a_out) {
@@ -260,16 +341,41 @@ namespace
             GridInvAPI::kMsgRegisterPricer, &pricer, sizeof(pricer),
             GridInvAPI::kHostPluginName);
 
+        // ★A FOURTH TABLE, AND ONLY WHEN THERE IS SOMETHING IN IT. Without
+        // Socketing every answer would be "no sockets", asked per cell per
+        // frame for nothing. The host announces itself during SKSE's kPostLoad,
+        // which is when Socketing's interface can first be asked for -- so
+        // this may well be the call that finds it; main.cpp's kPostLoad makes
+        // the same one, and whichever runs first is the one that does it.
+        // A host built before the table existed ignores the message, and its
+        // wells stay the provider's, as they were.
+        bool sentSockets = false;
+        if (Sockets::Connect()) {
+            static GridInvAPI::Socketer socketer{
+                sizeof(GridInvAPI::Socketer),
+                GridInvAPI::kABIVersion,
+                "DiabloInSkyrim",
+                nullptr,   // self: the rows live in Sockets.cpp
+                &GetSockets,
+                &GetArt,
+                &GetSocketLines,
+            };
+            sentSockets = SKSE::GetMessagingInterface()->Dispatch(
+                GridInvAPI::kMsgRegisterSocketer, &socketer, sizeof(socketer),
+                GridInvAPI::kHostPluginName);
+        }
+
         // Dispatch returning true means the message was DELIVERED, not that the
         // host accepted the table -- the version gate and the null-pointer check
         // both run inside its handler and refuse invisibly from here. The host
         // logs its own verdict; this line only proves we spoke.
         g_registered.store(sent);
-        logger::info("grid tint: offered {} band(s) to {} -- tint {}, tooltip {}, price {}",
+        logger::info("grid tint: offered {} band(s) to {} -- tint {}, tooltip {}, price {}, sockets {}",
             std::size(kPalette), GridInvAPI::kHostPluginName,
             sent ? "delivered" : "not delivered (is Grid Inventory installed?)",
             sentAnnot ? "delivered" : "not delivered",
-            sentPrice ? "delivered" : "not delivered");
+            sentPrice ? "delivered" : "not delivered",
+            sentSockets ? "delivered" : "not offered (no Socketing)");
     }
 
     // Takes EVERY sender. Only Grid Inventory's own 4CC types may be acted on
@@ -296,6 +402,13 @@ namespace
             return;
         }
 
+        // Same rule for the table it points at: measured before it is kept.
+        if (ready->services &&
+            ready->services->structSize == sizeof(GridInvAPI::HostServices) &&
+            ready->services->abiVersion == GridInvAPI::kABIVersion) {
+            g_services.store(ready->services);
+        }
+
         Offer();
     }
 }
@@ -312,4 +425,12 @@ void GridTint::Install()
 bool GridTint::Registered()
 {
     return g_registered.load();
+}
+
+void GridTint::RequestRebuild()
+{
+    // The host only sets a flag here, which is why any thread may ask.
+    if (const auto* svc = g_services.load(); svc && svc->RequestRebuild) {
+        svc->RequestRebuild();
+    }
 }

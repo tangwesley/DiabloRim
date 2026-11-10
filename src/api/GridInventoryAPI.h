@@ -25,9 +25,9 @@
 //      be an undiagnosable CTD.
 //
 //  THREADING -- GetOverlay / GetTooltipLines / OfferDrop / GetTier / GetLines /
-//  GetMultiplier are all called from the host's render thread inside an active
-//  ImGui frame. Do not block, allocate, or call a game API that can open or
-//  close a menu.
+//  GetMultiplier / GetSockets / GetArt / Socketer::GetLines are all called from
+//  the host's render thread inside an active ImGui frame. Do not block,
+//  allocate, or call a game API that can open or close a menu.
 //
 //  HANDSHAKE (SKSE messaging, both plugins register a listener in
 //  SKSEPluginLoad so ordering does not matter):
@@ -90,6 +90,7 @@ namespace GridInvAPI
     inline constexpr std::uint32_t kMsgRegisterTinter   = 0x47495443;  // 'GITC'
     inline constexpr std::uint32_t kMsgRegisterAnnot    = 0x4749414E;  // 'GIAN'
     inline constexpr std::uint32_t kMsgRegisterPricer   = 0x47495052;  // 'GIPR'
+    inline constexpr std::uint32_t kMsgRegisterSocketer = 0x4749534B;  // 'GISK'
 
     // ★(1.5.x) SUPPRESS THE GRID'S OWN WINDOW while yours sits over it.
     //
@@ -147,6 +148,7 @@ namespace GridInvAPI
     inline constexpr std::uint32_t kMaxBadges       = 8;    // D2 caps at 6; 8 is headroom
     inline constexpr std::uint32_t kTooltipTextLen  = 128;  // bytes incl. NUL
     inline constexpr std::uint32_t kMaxTooltipLines = 16;
+    inline constexpr std::uint32_t kArtPathLen      = 260;  // bytes incl. NUL (Socketer::GetArt)
 
     // ★A tint tier travels in THREE SPARE BITS of the host's existing glow
     // byte (bits 5..7), which is what keeps this feature free of signature
@@ -551,4 +553,98 @@ namespace GridInvAPI
                                std::uint32_t side);
     };
     static_assert(sizeof(Pricer) == 32, "Pricer is part of the ABI");
+
+    // ---- provider -> host: SOCKETS ------------------------------------------
+
+    // ★★A FIFTH TABLE, BECAUSE THE BADGES HAD THE BLIND SPOT THE TOOLTIP HAD.
+    //
+    // Provider::GetOverlay draws the wells, and it is keyed by ItemKey, whose
+    // uid is ExtraUniqueID: 0 for every renamed or enchanted unit. A socketed
+    // item is one of those by construction -- a socket mod keeps its record on
+    // a created enchantment of the item's own -- so every socketed iron sword
+    // in a chest reached that hook under the same key as every plain one. The
+    // answer is the one Tinter, Annotator and Pricer already give: hand over
+    // the unit's own list.
+    //
+    // THE SAME WELLS. A socketer fills the Overlay struct a provider does, and
+    // the host lays it out and draws it with the same table, the same well and
+    // the same hover rule. When both answer for a unit, the socketer's row is
+    // drawn: it was asked about THIS unit, the provider about every unit that
+    // shares its key.
+    //
+    // ★WHY GetArt. A Badge names the form in its well, and the host draws that
+    // form's icon from its own capture of the model. A socket mod usually has
+    // something better than a capture of a pebble: a picture of the stone made
+    // for the purpose. GetArt says where that picture is, once per form, and
+    // the host loads and keeps it. A form it has no art for, or art that will
+    // not load, falls back to the capture, so art is an improvement and never
+    // a requirement.
+    //
+    // Own slot, own message, own handshake, kABIVersion untouched. Register
+    // any combination of the five.
+    struct Socketer
+    {
+        std::uint32_t structSize;   // = sizeof(Socketer)
+        std::uint32_t abiVersion;   // = kABIVersion
+        const char*   name;         // static string, diagnostics only
+        void*         self;         // opaque; handed back as the first argument
+
+        // ONE unit's sockets, in socket order.
+        //
+        //   base  the TESBoundObject FormID
+        //   xl    the RE::ExtraDataList* of THIS sub-stack. NEVER nullptr: a
+        //         unit with no list of its own has nowhere to keep a socket,
+        //         and the host does not ask about one. Read-only, borrowed for
+        //         the call.
+        //   out   host-owned and zeroed. Set `count` to the unit's sockets and
+        //         fill badges[0..count): kBadgeFilled with iconId = the form in
+        //         the socket, or kBadgeEmpty with iconId 0 for an empty one.
+        //         tintRGBA is 0xRRGGBBAA, exactly as on a provider's Badge.
+        //
+        // Return false for "no sockets", which is the answer for nearly every
+        // unit; the host then asks Provider::GetOverlay as it always did.
+        //
+        // HOT PATH. The host's partner window and equipment doll are collected
+        // every frame, so this runs once per visible cell per frame there, and
+        // once per tile per rebuild on the player's grid. A hash lookup and
+        // nothing more.
+        bool (*GetSockets)(void* self, std::uint32_t base, const void* xl, Overlay* out);
+
+        // The picture for a filled well's iconId: a path relative to the Data
+        // folder ("Textures\\MyMod\\Gem.png"), NUL-terminated, never more than
+        // `capacity` bytes including the NUL. Anything Windows Imaging
+        // Component decodes, which is PNG and DDS among others, as a LOOSE
+        // file: the host reads it from disk, not from an archive.
+        //
+        // Return false to keep the host's own icon for that form.
+        //
+        // NOT the hot path: asked once per form per session, the first time a
+        // well holding it is drawn. The host keeps the answer and the loaded
+        // texture for the life of the process, so the art must not change
+        // under a FormID while the game runs.
+        bool (*GetArt)(void* self, std::uint32_t iconId, char* out, std::uint32_t capacity);
+
+        // What ONE unit's sockets DO, as tooltip lines. Write at most
+        // `capacity` lines into `out` and return how many. 0 for a unit with
+        // nothing to say. MAY BE nullptr: a socketer with no text draws wells
+        // and nothing else.
+        //
+        // ★DRAWN WITH THE ITEM'S EFFECTS, not where an Annotator's lines go.
+        // A socket mod keeps its effects on a created enchantment whose
+        // effects are hidden from every item card, so the host's enchantment
+        // block prints nothing for a socketed unit. These lines stand in for
+        // it, directly after it, in the tooltip and in the SHIFT-compare card.
+        // Hence the one difference from an Annotator's lines: rgba 0 means
+        // the host's EFFECT colour, not its body colour. Otherwise the same:
+        // rgba packed as ImU32 (0xAABBGGRR), indent 0..3, separatorBefore
+        // draws a rule (the compare card has none and ignores it).
+        //
+        //   base, xl  as GetSockets: xl is never nullptr.
+        //
+        // Not the board's hot path, but once per frame for as long as the
+        // unit's tooltip is up, and again for its compare card. Cache it.
+        std::uint32_t (*GetLines)(void* self, std::uint32_t base, const void* xl,
+                                  TooltipLine* out, std::uint32_t capacity);
+    };
+    static_assert(sizeof(Socketer) == 48, "Socketer is part of the ABI");
 }

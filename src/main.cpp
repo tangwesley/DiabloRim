@@ -25,6 +25,7 @@
 #include "QuestReward.h"
 #include "Notify.h"
 #include "MgefSurvey.h"
+#include "Sockets.h"
 #include "Wielder.h"
 
 #include "roll/Roll.h"
@@ -166,6 +167,14 @@ namespace
             return;
         }
         switch (a_msg->type) {
+        case SKSE::MessagingInterface::kPostLoad:
+            // Every plugin is loaded, which is the earliest Socketing's
+            // interface can be asked for. Grid Inventory's handshake may have
+            // asked already (GridTint::Offer); only the first call does
+            // anything, so the order the two plugins hear this in is moot.
+            Sockets::Connect();
+            break;
+
         case SKSE::MessagingInterface::kDataLoaded:
             // Every form in the load order exists by now. The affix table's
             // FormID resolution and its loud validation pass belong here.
@@ -238,6 +247,9 @@ namespace
             // Same reasoning one layer up: a reward queued in the world being
             // replaced must not be rolled into the world replacing it.
             QuestReward::Forget();
+            // Socket rows are keyed by created enchantments, whose FormIDs the
+            // next save hands out again to other items.
+            Sockets::Forget();
             break;
 
         case SKSE::MessagingInterface::kNewGame:
@@ -246,6 +258,9 @@ namespace
             // -- the rolled-actor set above all -- is about to be restored by
             // the serialization callbacks and must not be trusted before then.
             logger::info("game loaded");
+            // A new game never passed through kPreLoadGame, and its created
+            // forms start numbering again too.
+            Sockets::Forget();
             // Actors already in the world at load time never fire
             // TESObjectLoadedEvent. Sweeping here is what makes an existing save
             // pick up loot retroactively rather than only as the player travels.
