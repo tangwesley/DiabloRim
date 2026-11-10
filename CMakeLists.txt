@@ -128,6 +128,12 @@ list(APPEND SOURCES src/Pricing.h src/Pricing.cpp)
 list(APPEND SOURCES src/api/GridInventoryAPI.h)
 list(APPEND SOURCES src/GridTint.h src/GridTint.cpp)
 
+# Socketing's sockets, read through its published interface so the grid can
+# draw them. api/SocketingAPI.h is VENDORED verbatim from Socketing (MIT, the
+# one file of that mod licensed for copying) for the same reason as above.
+list(APPEND SOURCES src/api/SocketingAPI.h)
+list(APPEND SOURCES src/Sockets.h src/Sockets.cpp)
+
 add_library(${PROJECT_NAME} SHARED ${SOURCES})
 
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_23)

@@ -33,6 +33,14 @@
 //  hands over the ExtraDataList pointer it is already holding, and we read the
 //  ExtraEnchantment we put there ourselves.
 //
+//  AND A FOURTH, FOR ANOTHER MOD'S SOCKETS. With Socketing installed, the grid
+//  is also asked what sockets a unit has, what is in them and what they do
+//  (tooltip lines, Socketing 0.6.0+), and Sockets.cpp answers from Socketing's
+//  own interface. The host's badge wells are drawn
+//  from the provider slot by ItemKey otherwise -- blind to every socketed unit
+//  for the uid reason above -- so this is a table of its own too, handed the
+//  list, and it is only offered when Socketing is there to read.
+//
 //  Absent Grid Inventory this file does nothing at all: no host announcement
 //  arrives, we never dispatch, and nothing else in the mod notices.
 // =============================================================================
@@ -52,4 +60,9 @@ namespace GridTint
     // Whether the host accepted our table. False when Grid Inventory is not
     // installed, which is the ordinary case and not an error.
     [[nodiscard]] bool Registered();
+
+    // Asks the host to re-collect the player's grid on its next frame, because
+    // something it drew from us has changed. Any thread; a no-op without the
+    // host.
+    void RequestRebuild();
 }
